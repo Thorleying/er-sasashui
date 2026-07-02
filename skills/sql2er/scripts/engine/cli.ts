@@ -180,10 +180,10 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   layout <optimal|arrange>  Re-run a layout. optimal = planar skeleton seed + constrained stress
                            (rooms for attribute rings; the recommended default);
                            arrange = settle current positions.
-  move <id> <x> <y>        Place a node. Entity attributes and diamonds follow. Then settles
-                           with one arrange pass unless --raw.
-  nudge <id> <dx> <dy>     Shift a node by a delta. --raw to skip the settle pass.
-  swap <idA> <idB>         Exchange two entities' positions. --raw to skip settle.
+  move <id> <x> <y>        Place a node. Entity attributes and diamonds follow. Then auto-avoids
+                           unless --raw.
+  nudge <id> <dx> <dy>     Shift a node by a delta. --raw to skip automatic avoidance.
+  swap <idA> <idB>         Exchange two entities' positions. --raw to skip automatic avoidance.
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.

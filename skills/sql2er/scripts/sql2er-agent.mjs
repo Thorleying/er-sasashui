@@ -5994,13 +5994,6 @@ function setAttrMode(state, mode) {
   applyAutoAvoid(next);
   return next;
 }
-function settle(state) {
-  state.settings = normalizeSettings(state.settings);
-  const graph = styleAndSize(state.nodes, state.edges, state.settings);
-  arrangeLayout(graph);
-  applyAttrMode(state);
-  applyAutoAvoid(state);
-}
 function setAutoAvoid(state, enabled) {
   state.settings = normalizeSettings({ ...state.settings, autoAvoid: enabled });
   if (enabled) applyAutoAvoid(state);
@@ -6013,7 +6006,7 @@ function move(state, arg, x, y, raw) {
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
   if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
-  if (!raw) settle(state);
+  if (!raw) applyAutoAvoid(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 function nudge(state, arg, dx, dy, raw) {
@@ -6021,7 +6014,7 @@ function nudge(state, arg, dx, dy, raw) {
   const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, node, dx, dy);
   if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
-  if (!raw) settle(state);
+  if (!raw) applyAutoAvoid(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 function swap(state, argA, argB, raw) {
@@ -6044,7 +6037,7 @@ function swap(state, argA, argB, raw) {
   translateCluster(state, a, bx - ax, by - ay);
   translateCluster(state, b, ax - bx, ay - by);
   syncMovedEntities(state, [a.id, b.id], startPositions);
-  if (!raw) settle(state);
+  if (!raw) applyAutoAvoid(state);
   return {
     state: { ...state },
     resolved: [
@@ -8108,10 +8101,10 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
   layout <optimal|arrange>  Re-run a layout. optimal = planar skeleton seed + constrained stress
                            (rooms for attribute rings; the recommended default);
                            arrange = settle current positions.
-  move <id> <x> <y>        Place a node. Entity attributes and diamonds follow. Then settles
-                           with one arrange pass unless --raw.
-  nudge <id> <dx> <dy>     Shift a node by a delta. --raw to skip the settle pass.
-  swap <idA> <idB>         Exchange two entities' positions. --raw to skip settle.
+  move <id> <x> <y>        Place a node. Entity attributes and diamonds follow. Then auto-avoids
+                           unless --raw.
+  nudge <id> <dx> <dy>     Shift a node by a delta. --raw to skip automatic avoidance.
+  swap <idA> <idB>         Exchange two entities' positions. --raw to skip automatic avoidance.
   rotate <degrees>         Rotate the whole diagram about its centre (shapes stay upright).
   attrs <auto|compact|moderate>  Re-place attribute ellipses. compact = tightest
                            non-overlapping pack; moderate = uniform even ring. Persists.

@@ -3,10 +3,10 @@
  * mutates it via the REAL app layout/styling functions, and returns the new model.
  *
  * Scope is deliberately agent-shaped: no scroll-zoom, no history, no continuous
- * force loop (an agent adjusts once, not by dragging). The "settle after an edit"
- * step is a single arrangeLayout pass — arrangeLayout refines the *current* coords
- * with deadband springs, so it preserves the agent's coarse intent while fixing
- * attributes / diamonds / overlaps.
+ * force loop (an agent adjusts once, not by dragging). Direct edits preserve the
+ * user's coarse intent: entity-owned attributes translate with the entity, related
+ * diamonds are re-anchored between entities, and the optional post step is only
+ * automatic overlap avoidance.
  */
 import { parseSQLTables } from "@app/parser/sql";
 import { parseDBML } from "@app/parser/dbml";
@@ -812,14 +812,6 @@ export function setAttrMode(state: State, mode: AttrMode): State {
   return next;
 }
 
-function settle(state: State) {
-  state.settings = normalizeSettings(state.settings);
-  const graph = styleAndSize(state.nodes, state.edges, state.settings);
-  arrangeLayout(graph);
-  applyAttrMode(state);
-  applyAutoAvoid(state);
-}
-
 export function setAutoAvoid(state: State, enabled: boolean): State {
   state.settings = normalizeSettings({ ...state.settings, autoAvoid: enabled });
   if (enabled) applyAutoAvoid(state);
@@ -833,7 +825,7 @@ export function move(state: State, arg: string, x: number, y: number, raw: boole
   const dy = y - (typeof node.y === "number" ? node.y : 0);
   translateCluster(state, node, dx, dy);
   if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
-  if (!raw) settle(state);
+  if (!raw) applyAutoAvoid(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 
@@ -842,7 +834,7 @@ export function nudge(state: State, arg: string, dx: number, dy: number, raw: bo
   const startPositions = captureNodePositions(state.nodes);
   translateCluster(state, node, dx, dy);
   if (node.nodeType === "entity") syncMovedEntities(state, [node.id], startPositions);
-  if (!raw) settle(state);
+  if (!raw) applyAutoAvoid(state);
   return { state: { ...state }, resolved: [{ id: node.id, label: String(node.label) }] };
 }
 
@@ -866,7 +858,7 @@ export function swap(state: State, argA: string, argB: string, raw: boolean): Ed
   translateCluster(state, a, bx - ax, by - ay);
   translateCluster(state, b, ax - bx, ay - by);
   syncMovedEntities(state, [a.id, b.id], startPositions);
-  if (!raw) settle(state);
+  if (!raw) applyAutoAvoid(state);
   return {
     state: { ...state },
     resolved: [

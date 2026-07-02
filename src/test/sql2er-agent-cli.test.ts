@@ -345,6 +345,78 @@ function makeAttributeConnectorCrossingState(): AgentState {
   };
 }
 
+function makeEntityEditFollowState(): AgentState {
+  return {
+    version: 1,
+    input: "manual",
+    format: "sql",
+    settings: {
+      colored: true,
+      comment: false,
+      hideAttrs: false,
+      fontScale: 1,
+      attrMode: "moderate",
+      autoAvoid: true,
+    },
+    nodes: [
+      { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+      { id: "entity-b", type: "entity", label: "b", nodeType: "entity", x: 360, y: 140 },
+      {
+        id: "attr-a-name",
+        type: "attribute",
+        label: "name",
+        nodeType: "attribute",
+        parentEntity: "entity-a",
+        x: 140,
+        y: 172,
+      },
+      {
+        id: "attr-b-name",
+        type: "attribute",
+        label: "name",
+        nodeType: "attribute",
+        parentEntity: "entity-b",
+        x: 360,
+        y: 20,
+      },
+      {
+        id: "rel-a-b",
+        type: "relationship",
+        label: "a_b",
+        nodeType: "relationship",
+        x: 230,
+        y: 120,
+      },
+    ],
+    edges: [
+      {
+        id: "edge-a-name",
+        source: "entity-a",
+        target: "attr-a-name",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-b-name",
+        source: "entity-b",
+        target: "attr-b-name",
+        edgeType: "entity-attribute",
+      },
+      {
+        id: "edge-a-rel",
+        source: "entity-a",
+        target: "rel-a-b",
+        edgeType: "entity-relationship",
+      },
+      {
+        id: "edge-rel-b",
+        source: "rel-a-b",
+        target: "entity-b",
+        edgeType: "relationship-entity",
+      },
+    ],
+  };
+}
+
 function makeAttributeDetailState(): AgentState {
   return {
     version: 1,
@@ -1454,6 +1526,67 @@ describe("sql2er agent CLI entity edits", () => {
       const nudgedRel = runAgent(["nudge", "rel-a-b", "15", "-20", "--raw", "--state", state]);
       expect(nudgedRel.status).toBe(0);
       expect(nodePosition(readState(state), "rel-a-b")).toEqual({ x: 235, y: 80 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps entity attributes attached and relationship diamonds synced without settling default move and nudge edits", () => {
+    const cases = [
+      {
+        command: ["move", "entity-a", "180", "210"],
+        expectedEntity: { x: 180, y: 210 },
+      },
+      {
+        command: ["nudge", "entity-a", "80", "110"],
+        expectedEntity: { x: 180, y: 210 },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+      try {
+        const state = resolve(dir, "er.json");
+        writeFileSync(state, JSON.stringify(makeEntityEditFollowState()));
+
+        const edited = runAgent([...testCase.command, "--state", state]);
+
+        expect(edited.status).toBe(0);
+        const next = readState(state);
+        expect(nodePosition(next, "entity-a")).toEqual(testCase.expectedEntity);
+        expect(nodePosition(next, "entity-b")).toEqual({ x: 360, y: 140 });
+        expect(nodePosition(next, "attr-a-name")).toEqual({ x: 220, y: 282 });
+        expect(nodePosition(next, "attr-b-name")).toEqual({ x: 360, y: 20 });
+        expectPointOnSegment(
+          nodePosition(next, "rel-a-b"),
+          nodePosition(next, "entity-a"),
+          nodePosition(next, "entity-b"),
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("keeps entity attributes attached and relationship diamonds synced without settling default swaps", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      writeFileSync(state, JSON.stringify(makeEntityEditFollowState()));
+
+      const swapped = runAgent(["swap", "entity-a", "entity-b", "--state", state]);
+
+      expect(swapped.status).toBe(0);
+      const next = readState(state);
+      expect(nodePosition(next, "entity-a")).toEqual({ x: 360, y: 140 });
+      expect(nodePosition(next, "entity-b")).toEqual({ x: 100, y: 100 });
+      expect(nodePosition(next, "attr-a-name")).toEqual({ x: 400, y: 212 });
+      expect(nodePosition(next, "attr-b-name")).toEqual({ x: 100, y: -20 });
+      expectPointOnSegment(
+        nodePosition(next, "rel-a-b"),
+        nodePosition(next, "entity-a"),
+        nodePosition(next, "entity-b"),
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

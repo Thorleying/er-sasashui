@@ -132,7 +132,7 @@ node $AGENT labels mode comment --state er.json
 - `nudge <id> <dx> <dy>`: shift a node by delta.
 - `swap <idA> <idB>`: exchange two entity positions.
 
-Use exact ids from `describe`; run `describe --full` when targeting attributes. Each command runs one `arrange` pass afterward. Use `--raw` to skip settling and automatic avoidance. Coordinates are unbounded; exports fit the view to the graph.
+Use exact ids from `describe`; run `describe --full` when targeting attributes. Entity edits keep owned attributes attached and re-anchor related relationship diamonds. Automatic avoidance runs by default; use `--raw` to skip it. Coordinates are unbounded; exports fit the view to the graph.
 
 ## rotate `<degrees>`
 
