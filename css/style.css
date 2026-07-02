@@ -525,6 +525,13 @@ body.history-open .skill-install-pill {
   gap: 20px;
 }
 
+.sql-editor-frame {
+  height: 500px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .inline-label {
   font-family: var(--app-font);
   font-size: var(--text-sm);
@@ -719,7 +726,7 @@ body.history-open .skill-install-pill {
 .diagram-container {
   width: 100%;
   flex: 1;
-  min-height: 600px;
+  min-height: 560px;
   background-color: #ffffff;
   background-image: radial-gradient(rgba(20, 20, 19, 0.14) 1.5px, transparent 1.5px);
   background-size: 24px 24px;
@@ -1212,12 +1219,16 @@ body.history-open .skill-install-pill {
    `.cm-editor` / `.cm-content` / `.cm-gutters` 等。
 ═══════════════════════════════════════ */
 .cm-host {
-  height: 540px;
+  height: 500px;
   border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: 0 0 0 1px var(--app-border);
   transition: box-shadow var(--duration-normal) var(--ease-default);
   background: var(--app-bg-overlay);
+}
+
+.sql-editor-frame .cm-host {
+  height: 100%;
 }
 
 .cm-host:focus-within {
@@ -1706,6 +1717,10 @@ body.history-open .skill-install-pill {
     font-size: 1.02rem;
   }
 
+  .sql-editor-frame {
+    height: 320px;
+  }
+
   .cm-host {
     height: 320px;
   }
@@ -1780,6 +1795,10 @@ body.history-open .skill-install-pill {
 
   .card-title {
     font-size: 0.96rem;
+  }
+
+  .sql-editor-frame {
+    height: 260px;
   }
 
   .cm-host {

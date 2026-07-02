@@ -453,13 +453,7 @@ const App = () => {
               </div>
             </div>
             <div className="card-content">
-              <div
-                style={{
-                  height: "540px",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
+              <div className="sql-editor-frame">
                 <CodeEditor
                   value={inputText}
                   onChange={setInputText}
