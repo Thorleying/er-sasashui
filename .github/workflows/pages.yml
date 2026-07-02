@@ -60,7 +60,7 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     environment:
       name: github-pages
@@ -70,3 +70,5 @@ jobs:
       - name: Deploy
         id: deploy
         uses: actions/deploy-pages@v5
+        with:
+          timeout: 900000
