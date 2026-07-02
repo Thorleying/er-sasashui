@@ -15,6 +15,29 @@ interface RotPivot {
   cy: number;
 }
 
+export function applyGraphRotation(
+  graph: Pick<GraphLike, "getNodes" | "refreshPositions"> & {
+    emit?: (eventName: string, event?: unknown) => void;
+  },
+  angle: number,
+  cx: number,
+  cy: number,
+) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  graph.getNodes().forEach((node) => {
+    const m = node.getModel();
+    const mx = m.x ?? 0;
+    const my = m.y ?? 0;
+    const dx = mx - cx;
+    const dy = my - cy;
+    m.x = cx + dx * cos - dy * sin;
+    m.y = cy + dx * sin + dy * cos;
+  });
+  graph.refreshPositions();
+  graph.emit?.("viewportchange");
+}
+
 // 自定义滚轮平滑缩放 / Ctrl+滚轮平滑旋转
 // - 仅改变节点位置，不旋转节点本身的形状/文字朝向
 // - 每格累积固定增量，用 rAF 做缓动动画，避免跳变
@@ -62,21 +85,6 @@ export function useWheelZoomRotate({ containerRef, graphRef, historyRef, onAfter
       return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
     };
 
-    const applyRotation = (graph: GraphLike, angle: number, cx: number, cy: number) => {
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      graph.getNodes().forEach((node) => {
-        const m = node.getModel();
-        const mx = m.x ?? 0;
-        const my = m.y ?? 0;
-        const dx = mx - cx;
-        const dy = my - cy;
-        m.x = cx + dx * cos - dy * sin;
-        m.y = cy + dx * sin + dy * cos;
-      });
-      graph.refreshPositions();
-    };
-
     const tick = () => {
       rafId = null;
       const graph = graphRef.current;
@@ -94,7 +102,7 @@ export function useWheelZoomRotate({ containerRef, graphRef, historyRef, onAfter
       if (rotPivot) {
         if (Math.abs(pendingAngle) >= MIN_ANGLE) {
           const step = pendingAngle * SMOOTHING;
-          applyRotation(graph, step, rotPivot.cx, rotPivot.cy);
+          applyGraphRotation(graph, step, rotPivot.cx, rotPivot.cy);
           pendingAngle -= step;
           more = true;
         } else {
