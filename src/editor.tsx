@@ -195,6 +195,7 @@ export interface NodeDoubleClickEditOptions {
 export interface NodeDoubleClickEditController {
   finishEditing: (save: boolean) => void;
   isEditing: () => boolean;
+  refreshEditing: () => void;
 }
 
 // G6 4.x 中 graph.on(eventName, fn) 的事件参数没有公开类型，这里只用到 e.item
@@ -207,8 +208,52 @@ interface NodeEvent {
 // G6 graph 上本模块用到的额外方法
 interface EditableGraph extends GraphLike {
   getCanvasByPoint(x: number, y: number): { x: number; y: number };
-  on(eventName: string, handler: (e: NodeEvent) => void): void;
+  on(eventName: "node:dblclick", handler: (e: NodeEvent) => void): void;
+  on(eventName: "canvas:click" | "viewportchange", handler: () => void): void;
+  on(eventName: string, handler: (e: unknown) => void): void;
 }
+
+const syncNodeEditInputStyle = (
+  graph: EditableGraph,
+  node: NodeEvent["item"],
+  input: HTMLInputElement,
+): void => {
+  const model = node.getModel();
+  const bbox = typeof node.getBBox === "function" ? node.getBBox() : null;
+  const canvasPoint = graph.getCanvasByPoint(
+    bbox?.centerX ?? model.x ?? 0,
+    bbox?.centerY ?? model.y ?? 0,
+  );
+  const currentZoom = graph.getZoom();
+
+  const dimensions = getNodeDimensions(model);
+  const scaledWidth = (bbox?.width ?? dimensions.width) * currentZoom;
+  const scaledHeight = (bbox?.height ?? dimensions.height) * currentZoom;
+  const scaledFontSize = dimensions.fontSize * currentZoom;
+
+  const borderColor = getNodeColor(model);
+  const rgbValues = (borderColor.substring(1).match(/.{1,2}/g) || []).map((x) => parseInt(x, 16));
+  const shadowColorRGB = `rgba(${rgbValues.join(", ")}, 0.2)`;
+
+  // 定位是相对于 G6 的容器 (container)
+  input.style.left = canvasPoint.x - scaledWidth / 2 + "px";
+  input.style.top = canvasPoint.y - scaledHeight / 2 + "px";
+  input.style.width = scaledWidth + "px";
+  input.style.height = scaledHeight + "px";
+  input.style.border = `${2 * currentZoom}px solid ${borderColor}`;
+  input.style.fontSize = scaledFontSize + "px";
+  input.style.boxShadow = `0 0 0 ${3 * currentZoom}px ${shadowColorRGB}`;
+
+  if (model.type === "entity") {
+    input.style.borderRadius = 4 * currentZoom + "px";
+  } else if (model.type === "relationship") {
+    input.style.borderRadius = 8 * currentZoom + "px";
+    // 菱形节点用矩形输入框，不旋转以便于编辑
+  } else {
+    // attribute
+    input.style.borderRadius = "50%";
+  }
+};
 
 /**
  * 为 G6 图形实例设置节点双击编辑功能
@@ -225,51 +270,20 @@ export function setupNodeDoubleClickEdit(
 
   const startEditing = (node: NodeEvent["item"], model: ERNodeModel) => {
     editingNode = node;
-    // `getCanvasByPoint` 返回的是相对于 G6 画布左上角的坐标
-    const bbox = typeof node.getBBox === "function" ? node.getBBox() : null;
-    const canvasPoint = graph.getCanvasByPoint(
-      bbox?.centerX ?? model.x ?? 0,
-      bbox?.centerY ?? model.y ?? 0,
-    );
-    const currentZoom = graph.getZoom();
-
-    const dimensions = getNodeDimensions(model);
-    const scaledWidth = (bbox?.width ?? dimensions.width) * currentZoom;
-    const scaledHeight = (bbox?.height ?? dimensions.height) * currentZoom;
-    const scaledFontSize = dimensions.fontSize * currentZoom;
 
     const borderColor = getNodeColor(model);
-    const rgbValues = (borderColor.substring(1).match(/.{1,2}/g) || []).map((x) => parseInt(x, 16));
-    const shadowColorRGB = `rgba(${rgbValues.join(", ")}, 0.2)`;
 
     const input = document.createElement("input");
     input.type = "text";
     input.value = model.label || "";
     input.style.position = "absolute";
-    // 定位是相对于 G6 的容器 (container)
-    input.style.left = canvasPoint.x - scaledWidth / 2 + "px";
-    input.style.top = canvasPoint.y - scaledHeight / 2 + "px";
-    input.style.width = scaledWidth + "px";
-    input.style.height = scaledHeight + "px";
     input.style.padding = "0";
-    input.style.border = `${2 * currentZoom}px solid ${borderColor}`;
     input.style.outline = "none";
-    input.style.fontSize = scaledFontSize + "px";
     input.style.textAlign = "center";
     input.style.backgroundColor = "rgba(255, 255, 255, 0.95)";
     input.style.zIndex = "1000";
-    input.style.boxShadow = `0 0 0 ${3 * currentZoom}px ${shadowColorRGB}`;
     input.style.fontWeight = model.type === "entity" || model.keyType === "pk" ? "bold" : "normal";
-
-    if (model.type === "entity") {
-      input.style.borderRadius = 4 * currentZoom + "px";
-    } else if (model.type === "relationship") {
-      input.style.borderRadius = 8 * currentZoom + "px";
-      // 菱形节点用矩形输入框，不旋转以便于编辑
-    } else {
-      // attribute
-      input.style.borderRadius = "50%";
-    }
+    syncNodeEditInputStyle(graph, node, input);
 
     container.appendChild(input);
     input.focus();
@@ -290,6 +304,11 @@ export function setupNodeDoubleClickEdit(
     });
 
     editInput = input;
+  };
+
+  const refreshEditing = () => {
+    if (!editingNode || !editInput) return;
+    syncNodeEditInputStyle(graph, editingNode, editInput);
   };
 
   const finishEditing = (save: boolean) => {
@@ -354,8 +373,13 @@ export function setupNodeDoubleClickEdit(
     }
   });
 
+  graph.on("viewportchange", () => {
+    refreshEditing();
+  });
+
   return {
     finishEditing,
     isEditing: () => editingNode !== null,
+    refreshEditing,
   };
 }
