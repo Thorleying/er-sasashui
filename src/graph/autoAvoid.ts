@@ -533,10 +533,10 @@ function applyRelationshipLineAvoidance(
 
   for (let pass = 0; pass < 3; pass++) {
     let moved = false;
-    const edgeSegments = currentEdges();
-    const attributeConnectors = currentAttributeConnectors();
 
     for (const relationship of relationships) {
+      const edgeSegments = currentEdges();
+      const attributeConnectors = currentAttributeConnectors();
       const current = positions.get(relationship.id) ?? positionOf(relationship);
       if (placementIsClear(relationship, current, edgeSegments, attributeConnectors)) continue;
       const target = nearestClearPoint(relationship, edgeSegments, attributeConnectors);

@@ -41,6 +41,38 @@ const segmentsIntersect = (
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
 };
 
+const boundaryPoint = (
+  node: ERNodeModel,
+  target: { x: number; y: number },
+): { x: number; y: number } => {
+  const x = node.x ?? 0;
+  const y = node.y ?? 0;
+  const dx = target.x - x;
+  const dy = target.y - y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-9) return { x, y };
+  const ux = dx / len;
+  const uy = dy / len;
+  const size = sizeOf(node);
+  const sx = Math.abs(ux) > 1e-9 ? size.width / 2 / Math.abs(ux) : Infinity;
+  const sy = Math.abs(uy) > 1e-9 ? size.height / 2 / Math.abs(uy) : Infinity;
+  const extent = Math.min(sx, sy);
+  return { x: x + ux * extent, y: y + uy * extent };
+};
+
+const relationshipSegmentsIntersect = (
+  sourceA: ERNodeModel,
+  targetA: ERNodeModel,
+  sourceB: ERNodeModel,
+  targetB: ERNodeModel,
+) =>
+  segmentsIntersect(
+    boundaryPoint(sourceA, { x: targetA.x ?? 0, y: targetA.y ?? 0 }),
+    boundaryPoint(targetA, { x: sourceA.x ?? 0, y: sourceA.y ?? 0 }),
+    boundaryPoint(sourceB, { x: targetB.x ?? 0, y: targetB.y ?? 0 }),
+    boundaryPoint(targetB, { x: sourceB.x ?? 0, y: sourceB.y ?? 0 }),
+  );
+
 describe("auto avoidance targets", () => {
   it("does nothing when disabled", () => {
     const nodes: ERNodeModel[] = [
@@ -367,29 +399,15 @@ describe("auto avoidance targets", () => {
       },
     ];
 
-    expect(
-      segmentsIntersect(
-        { x: nodes[0].x!, y: nodes[0].y! },
-        { x: nodes[2].x!, y: nodes[2].y! },
-        { x: nodes[1].x!, y: nodes[1].y! },
-        { x: nodes[3].x!, y: nodes[3].y! },
-      ),
-    ).toBe(true);
+    expect(relationshipSegmentsIntersect(nodes[0], nodes[2], nodes[1], nodes[3])).toBe(true);
 
     const targets = computeAutoAvoidTargets(nodes, sizeOf, { edges });
     applyTargets(nodes, targets);
 
-    expect(targets.has("rel-a") || targets.has("rel-b")).toBe(true);
+    expect(["rel-a", "rel-b"].filter((id) => targets.has(id))).toHaveLength(1);
     expect(targets.has("entity-a")).toBe(false);
     expect(targets.has("entity-b")).toBe(false);
-    expect(
-      segmentsIntersect(
-        { x: nodes[0].x!, y: nodes[0].y! },
-        { x: nodes[2].x!, y: nodes[2].y! },
-        { x: nodes[1].x!, y: nodes[1].y! },
-        { x: nodes[3].x!, y: nodes[3].y! },
-      ),
-    ).toBe(false);
+    expect(relationshipSegmentsIntersect(nodes[0], nodes[2], nodes[1], nodes[3])).toBe(false);
   });
 
   it("moves a relationship diamond when its entity relationship line is covered by another entity or diamond", () => {
