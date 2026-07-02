@@ -330,4 +330,111 @@ describe("auto avoidance targets", () => {
     expect(targets.has("rel-orders-users")).toBe(true);
     expect(targets.has("entity-users")).toBe(false);
   });
+
+  it("moves a relationship diamond when its entity relationship line crosses another relationship line", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-a", nodeType: "entity", type: "entity", label: "A", x: 0, y: 0 },
+      { id: "entity-b", nodeType: "entity", type: "entity", label: "B", x: 180, y: 0 },
+      {
+        id: "rel-a",
+        nodeType: "relationship",
+        type: "relationship",
+        label: "relA",
+        x: 180,
+        y: 120,
+      },
+      {
+        id: "rel-b",
+        nodeType: "relationship",
+        type: "relationship",
+        label: "relB",
+        x: 0,
+        y: 120,
+      },
+    ];
+    const edges: EREdgeModel[] = [
+      {
+        id: "edge-a-rel-a",
+        source: "entity-a",
+        target: "rel-a",
+        edgeType: "entity-relationship",
+      },
+      {
+        id: "edge-b-rel-b",
+        source: "entity-b",
+        target: "rel-b",
+        edgeType: "entity-relationship",
+      },
+    ];
+
+    expect(
+      segmentsIntersect(
+        { x: nodes[0].x!, y: nodes[0].y! },
+        { x: nodes[2].x!, y: nodes[2].y! },
+        { x: nodes[1].x!, y: nodes[1].y! },
+        { x: nodes[3].x!, y: nodes[3].y! },
+      ),
+    ).toBe(true);
+
+    const targets = computeAutoAvoidTargets(nodes, sizeOf, { edges });
+    applyTargets(nodes, targets);
+
+    expect(targets.has("rel-a") || targets.has("rel-b")).toBe(true);
+    expect(targets.has("entity-a")).toBe(false);
+    expect(targets.has("entity-b")).toBe(false);
+    expect(
+      segmentsIntersect(
+        { x: nodes[0].x!, y: nodes[0].y! },
+        { x: nodes[2].x!, y: nodes[2].y! },
+        { x: nodes[1].x!, y: nodes[1].y! },
+        { x: nodes[3].x!, y: nodes[3].y! },
+      ),
+    ).toBe(false);
+  });
+
+  it("moves a relationship diamond when its entity relationship line is covered by another entity or diamond", () => {
+    const nodes: ERNodeModel[] = [
+      { id: "entity-a", nodeType: "entity", type: "entity", label: "A", x: 0, y: 0 },
+      { id: "entity-blocker", nodeType: "entity", type: "entity", label: "Blocker", x: 120, y: 0 },
+      {
+        id: "rel-a",
+        nodeType: "relationship",
+        type: "relationship",
+        label: "relA",
+        x: 240,
+        y: 0,
+      },
+      {
+        id: "rel-blocker",
+        nodeType: "relationship",
+        type: "relationship",
+        label: "relBlocker",
+        x: 120,
+        y: 100,
+      },
+    ];
+    const edges: EREdgeModel[] = [
+      {
+        id: "edge-a-rel-a",
+        source: "entity-a",
+        target: "rel-a",
+        edgeType: "entity-relationship",
+      },
+    ];
+
+    const targets = computeAutoAvoidTargets(nodes, sizeOf, { edges });
+    applyTargets(nodes, targets);
+
+    expect(targets.has("rel-a")).toBe(true);
+    expect(targets.has("entity-a")).toBe(false);
+    expect(targets.has("entity-blocker")).toBe(false);
+    expect(
+      segmentsIntersect(
+        { x: nodes[0].x!, y: nodes[0].y! },
+        { x: nodes[2].x!, y: nodes[2].y! },
+        { x: nodes[1].x! - 50, y: nodes[1].y! },
+        { x: nodes[1].x! + 50, y: nodes[1].y! },
+      ),
+    ).toBe(false);
+  });
 });

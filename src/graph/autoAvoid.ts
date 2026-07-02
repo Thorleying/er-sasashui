@@ -53,8 +53,10 @@ interface PositionedNode {
 }
 
 interface EdgeSegment {
+  id: string;
   source: string;
   target: string;
+  edgeType?: EREdgeModel["edgeType"];
   a: Point;
   b: Point;
 }
@@ -135,12 +137,17 @@ const segmentForEdge = (
   const s = makeRecord(source, positions, sizes);
   const t = makeRecord(target, positions, sizes);
   return {
+    id: edge.id,
     source: edge.source,
     target: edge.target,
+    edgeType: edge.edgeType,
     a: boundaryPoint(s, { x: t.x, y: t.y }),
     b: boundaryPoint(t, { x: s.x, y: s.y }),
   };
 };
+
+const isRelationshipEdgeSegment = (edge: EdgeSegment): boolean =>
+  edge.edgeType === "entity-relationship" || edge.edgeType === "relationship-entity";
 
 const edgeTouches = (edge: EdgeSegment, id: string): boolean =>
   edge.source === id || edge.target === id;
@@ -167,8 +174,10 @@ const connectorForAttribute = (
     size: sizes.get(attribute.id) ?? fallbackSize(attribute),
   };
   return {
+    id: `connector:${entity.id}:${attribute.id}`,
     source: entity.id,
     target: attribute.id,
+    edgeType: "entity-attribute",
     a: boundaryPoint(entityRecord, point),
     b: boundaryPoint(attrRecord, { x: entityRecord.x, y: entityRecord.y }),
   };
@@ -393,6 +402,9 @@ function applyRelationshipLineAvoidance(
   const attributes = nodes.filter(
     (node) => node.nodeType === "attribute" && typeof node.parentEntity === "string",
   );
+  const shapeObstacles = nodes.filter(
+    (node) => node.nodeType === "entity" || node.nodeType === "relationship",
+  );
 
   const currentEdges = () =>
     edges
@@ -429,6 +441,7 @@ function applyRelationshipLineAvoidance(
     attributeConnectors: EdgeSegment[],
   ): boolean => {
     const relSize = sizes.get(relationship.id) ?? fallbackSize(relationship);
+    const relationshipEdgeSegments = edgeSegments.filter(isRelationshipEdgeSegment);
 
     for (const edge of edgeSegments) {
       if (
@@ -445,6 +458,22 @@ function applyRelationshipLineAvoidance(
       .filter((edge): edge is EdgeSegment => !!edge);
 
     for (const edge of touchingEdges) {
+      if (isRelationshipEdgeSegment(edge)) {
+        for (const obstacle of shapeObstacles) {
+          if (edgeTouches(edge, obstacle.id)) continue;
+          const obstaclePoint = positions.get(obstacle.id) ?? positionOf(obstacle);
+          const obstacleSize = sizes.get(obstacle.id) ?? fallbackSize(obstacle);
+          if (segmentHitsBox(edge.a, edge.b, obstaclePoint, obstacleSize, 1)) {
+            return false;
+          }
+        }
+
+        for (const otherEdge of relationshipEdgeSegments) {
+          if (edgeTouchesAny(edge, [otherEdge.source, otherEdge.target])) continue;
+          if (segmentsIntersect(edge.a, edge.b, otherEdge.a, otherEdge.b)) return false;
+        }
+      }
+
       for (const attribute of attributes) {
         const attrPoint = positions.get(attribute.id) ?? positionOf(attribute);
         const attrSize = sizes.get(attribute.id) ?? fallbackSize(attribute);
