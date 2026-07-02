@@ -11,7 +11,12 @@
 import { parseSQLTables } from "@app/parser/sql";
 import { parseDBML } from "@app/parser/dbml";
 import { generateChenModelData, measureNodeSize } from "@app/builder";
-import { forceAlignLayout, arrangeLayout } from "@app/layout";
+import {
+  applySkeletonLayout,
+  arrangeLayout,
+  placeAttributesModerate as placeAttributesModerateShared,
+  ringRadiusFor,
+} from "@app/layout";
 import { computeAttributePositions } from "@app/attributeLayout";
 import { updateGraphStyles } from "@app/graph/updateGraphStyles";
 import {
@@ -22,7 +27,6 @@ import {
 import { computeAutoAvoidTargets } from "@app/graph/autoAvoid";
 import type { EREdgeModel, ERNodeModel, ParseResult, ParserWarning } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
-import { stressLayout, ringRadiusFor } from "./skeleton";
 
 export type LayoutKind = "optimal" | "arrange" | "none";
 
@@ -116,9 +120,10 @@ export interface GenerateError extends Error {
   parserWarnings?: ParserWarning[];
 }
 
-// Run a layout on a styled graph. `optimal` force-aligns as a deterministic seed,
-// then stress-spaces the skeleton (room for attribute rings). `arrange` settles the
-// current positions only, so manual edits keep their coarse structure.
+// Run a layout on a styled graph. `optimal` builds an entity-only skeleton, seeds it
+// from a planar embedding or maximal planar subgraph, then constrained-stresses that
+// skeleton. `arrange` settles the current positions only, so manual edits keep their
+// coarse structure.
 function runLayoutOnGraph(
   kind: LayoutKind,
   graph: ReturnType<typeof styleAndSize>,
@@ -127,8 +132,7 @@ function runLayoutOnGraph(
 ): void {
   if (kind === "none") return;
   if (kind === "optimal") {
-    forceAlignLayout(graph, CANVAS_W);
-    stressLayout(nodes, edges);
+    applySkeletonLayout(nodes, edges, { canvasWidth: CANVAS_W });
   } else if (kind === "arrange") {
     arrangeLayout(graph);
   }
@@ -747,7 +751,7 @@ function placeAttributesModerate(state: State): void {
 
 function applyAttrMode(state: State): void {
   if (state.settings.attrMode === "compact") placeAttributesCompact(state);
-  else if (state.settings.attrMode === "moderate") placeAttributesModerate(state);
+  else if (state.settings.attrMode === "moderate") placeAttributesModerateShared(state);
   // "auto" → leave the layout-native placement untouched
 }
 
@@ -794,7 +798,7 @@ function measuredRingRadii(state: State): Map<string, number> {
 function tightenCompact(state: State): void {
   if (state.settings.attrMode !== "compact") return;
   const radii = measuredRingRadii(state);
-  stressLayout(state.nodes, state.edges, radii);
+  applySkeletonLayout(state.nodes, state.edges, { canvasWidth: CANVAS_W, ringOverride: radii });
   applyAttrMode(state);
 }
 

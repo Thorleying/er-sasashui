@@ -614,11 +614,21 @@ describe("sql2er agent CLI attribute visibility", () => {
         );
       `;
 
-      const generated = runAgent(["generate", "--format", "sql", "--text", badSchema, "--state", state]);
+      const generated = runAgent([
+        "generate",
+        "--format",
+        "sql",
+        "--text",
+        badSchema,
+        "--state",
+        state,
+      ]);
 
       expect(generated.status).toBe(0);
       expect(generated.stderr).toContain("parser warning:");
-      expect(generated.stderr).toContain('line 3: column "account_id" in table "broken" has no type');
+      expect(generated.stderr).toContain(
+        'line 3: column "account_id" in table "broken" has no type',
+      );
       expect(generated.stderr).toContain(
         'line 4: foreign key in table "broken" was not recognized',
       );
@@ -673,7 +683,15 @@ Ref: 文章.作者 >
     try {
       const state = resolve(dir, "er.json");
 
-      const generated = runAgent(["generate", "--format", "auto", "--text", schema, "--state", state]);
+      const generated = runAgent([
+        "generate",
+        "--format",
+        "auto",
+        "--text",
+        schema,
+        "--state",
+        state,
+      ]);
 
       expect(generated.status).not.toBe(0);
       expect(generated.stderr).toContain("generate --format accepts only sql or dbml");
@@ -972,7 +990,7 @@ describe("sql2er agent CLI labels", () => {
 });
 
 describe("sql2er agent CLI layout modes", () => {
-  it("arranges from current positions without first force-aligning", () => {
+  it("arranges from current positions without a separate alignment pass", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
     try {
       const state = resolve(dir, "er.json");

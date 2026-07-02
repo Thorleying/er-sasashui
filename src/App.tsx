@@ -79,7 +79,7 @@ const App = () => {
     setAutoAvoid,
     handleGenerate,
     dismissParserWarnings,
-    handleForceAlign,
+    handleQuickLayout,
     handleArrangeLayout,
     restoreFromSnapshot,
     persistSnapshot,
@@ -726,10 +726,10 @@ const App = () => {
                 </button>
                 <button
                   className="btn btn-sm btn-accent"
-                  onClick={handleForceAlign}
+                  onClick={handleQuickLayout}
                   disabled={!hasGraph || loading}
                 >
-                  {t.btnForceAlign}
+                  {t.btnQuickLayout}
                 </button>
               </div>
             </div>

@@ -177,7 +177,7 @@ Usage: node sql2er-agent.mjs <command> [args] [--flags]   (state in ./sql2er-sta
       --details                      expand attribute diagnostic pairs
       --focus <id>                   zoom into one entity
       --json                         machine-readable scene
-  layout <optimal|arrange>  Re-run a layout. optimal = stress-spaced skeleton
+  layout <optimal|arrange>  Re-run a layout. optimal = planar skeleton seed + constrained stress
                            (rooms for attribute rings; the recommended default);
                            arrange = settle current positions.
   move <id> <x> <y>        Place a node. Entity attributes and diamonds follow. Then settles
@@ -289,8 +289,7 @@ function main(): void {
       const graph = createHeadlessGraph(state.nodes, state.edges);
       if (boolFlag(flags.json)) {
         process.stdout.write(
-          JSON.stringify(describeJson(graph, { details: boolFlag(flags.details) }), null, 2) +
-            "\n",
+          JSON.stringify(describeJson(graph, { details: boolFlag(flags.details) }), null, 2) + "\n",
         );
       } else {
         printState(state, flags);

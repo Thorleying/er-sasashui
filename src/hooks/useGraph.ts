@@ -6,9 +6,10 @@ import { parseDBML } from "../parser/dbml";
 import { generateChenModelData, measureNodeSize, patchRelationshipLinkPoints } from "../builder";
 import {
   applyInitialComponentPositions,
+  applySkeletonLayout,
   animateNodesToTargets,
   arrangeLayout,
-  forceAlignLayout,
+  placeAttributesModerate,
   smoothFitView,
   spreadDisconnectedComponents,
 } from "../layout";
@@ -23,7 +24,14 @@ import type { ForceLoopController } from "../graph/forceLoop";
 import { updateGraphStyles } from "../graph/updateGraphStyles";
 import { computeAutoAvoidTargets } from "../graph/autoAvoid";
 import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
-import type { ERNodeModel, GraphLike, ParsedTable, ParserWarning, SnapshotRecord } from "../types";
+import type {
+  EREdgeModel,
+  ERNodeModel,
+  GraphLike,
+  ParsedTable,
+  ParserWarning,
+  SnapshotRecord,
+} from "../types";
 import type { HistoryManager } from "../history";
 
 type Translation = (typeof I18N)[keyof typeof I18N];
@@ -75,7 +83,7 @@ export interface UseGraphResult {
   dismissParserWarnings: () => void;
   // commands
   handleGenerate: (opts?: GenerateOptions) => void;
-  handleForceAlign: () => void;
+  handleQuickLayout: () => void;
   handleArrangeLayout: () => void;
   restoreFromSnapshot: (snap: SnapshotRecord) => void;
   persistSnapshot: (meta: {
@@ -319,7 +327,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     }, delayMs);
   };
 
-  // 公共关闭：智能布局 / 强制对齐 / 切换历史 / 显隐属性 / 重新生成
+  // 公共关闭：智能调整 / 快速布局 / 切换历史 / 显隐属性 / 重新生成
   // 都会让"持续力导向"复位为关闭。状态、ref、控制器三处同步。
   const disableForceIfOn = () => {
     if (!forceOnRef.current) return;
@@ -717,17 +725,30 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   // ─── 命令 ────────────────────────────────────────────────
 
-  const handleForceAlign = () => {
+  const handleQuickLayout = () => {
     if (!graphRef.current || graphRef.current.destroyed) return;
     disableForceIfOn();
     historyRef.current.record(graphRef.current);
+    const graph = graphRef.current;
     const containerWidth = containerRef.current?.offsetWidth || 1200;
-    forceAlignLayout(graphRef.current, containerWidth);
-    if (autoAvoidRef.current) {
-      window.setTimeout(() => persistAfterOptionalAutoAvoid(), 900);
-    } else {
-      scheduleCurrentSnapshotPersist(1200);
-    }
+    const nodes = graph.getNodes().map((node) => ({ ...(node.getModel() as ERNodeModel) }));
+    const edges = graph.getEdges().map((edge) => ({ ...(edge.getModel() as EREdgeModel) }));
+    applySkeletonLayout(nodes, edges, { canvasWidth: containerWidth });
+    placeAttributesModerate({ nodes, edges });
+
+    const targets = new Map<string, { x?: number; y?: number }>();
+    nodes.forEach((node) => targets.set(node.id, { x: node.x, y: node.y }));
+
+    animateNodesToTargets(graph, targets, 850, () => {
+      patchRelationshipLinkPoints(graph);
+      graph.refresh?.();
+      if (autoAvoidRef.current) {
+        persistAfterOptionalAutoAvoid();
+      } else {
+        scheduleCurrentSnapshotPersist(300);
+      }
+      window.setTimeout(() => smoothFitView(graph, 700, "easeOutCubic"), 80);
+    });
   };
 
   const handleArrangeLayout = () => {
@@ -770,7 +791,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     setError,
     dismissParserWarnings,
     handleGenerate,
-    handleForceAlign,
+    handleQuickLayout,
     handleArrangeLayout,
     restoreFromSnapshot,
     persistSnapshot,

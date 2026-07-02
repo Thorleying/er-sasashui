@@ -2,7 +2,7 @@
  * History Module - 撤销 / 重做（Undo / Redo）
  *
  * 通过对图中所有节点的 { id, x, y, label } 拍快照实现回退。
- * 能撤销的操作：节点拖拽、双击编辑节点标签、强制对齐、环绕排布、
+ * 能撤销的操作：节点拖拽、双击编辑节点标签、快速布局、环绕排布、
  * 滚轮旋转。不能撤销的操作（会重置历史）：重新生成图、隐藏/显示属性。
  *
  * 公开接口（window.History）：
@@ -65,7 +65,7 @@ function applySnapshot(
   if (!graph || graph.destroyed || !snap) return;
   const opts = options || {};
   const animate = opts.animate !== false;
-  const onFinish = typeof opts.onFinish === 'function' ? opts.onFinish : null;
+  const onFinish = typeof opts.onFinish === "function" ? opts.onFinish : null;
   const animator = animate ? animateNodesToTargets : null;
 
   // 标签直接更新；位置先收集成 targets 留给动画函数

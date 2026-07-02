@@ -155,11 +155,11 @@ Ref: posts.author_id > users.id
 ![Example 1](./assets/eg1.png)
 
 > [!TIP]
-> When the code is complex, the initial diagram may not be tidy. In that case:
+> When the structure is complex, the initial diagram may not be tidy. In that case:
 >
-> 1. Click **"Smart Layout"** for auto-arrangement — this usually produces a reasonably clean result with only minor tweaks needed.
-> 2. If still messy, click **"Force Alignment"** for a more aggressive alignment pass, then use "Smart Layout" again for an ideal result.
-> 3. In rare cases, **manually** drag the rectangles (entities) to suitable positions (no need to move other elements), then click "Smart Layout".
+> 1. Click **"Smart Adjustment"** for auto-arrangement — this usually produces a reasonably clean result with only minor tweaks needed.
+> 2. If still not ideal, click **"Quick Layout"** and then use "Smart Adjustment" again for an ideal result.
+> 3. In rare cases, **manually** drag the rectangles (entities) to suitable positions (no need to move other elements), then click "Smart Adjustment".
 > 4. **When there are many entities / relationships**, click **"Hide Attributes"** in the top-left of the canvas first, arrange the rectangles (entities) and diamonds (relationships) skeleton into the desired positions, then toggle back to "Show Attributes" — the attributes will automatically redistribute evenly around each rectangle's current position, so they won't get in the way while you drag.
 
 <table>
@@ -169,7 +169,7 @@ Ref: posts.author_id > users.id
 <img src="./assets/eg2.png" alt="Direct Generation"/>
 </td>
 <td width="50%" align="center">
-<h4>✨ Align + Smart Layout</h4>
+<h4>✨ Quick Layout + Smart Adjustment</h4>
 <img src="./assets/eg2_opt.png" alt="Optimized Layout"/>
 </td>
 </tr>

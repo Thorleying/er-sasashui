@@ -4,7 +4,7 @@
  * The app's layout / styling / export functions all operate on the GraphLike
  * interface (src/types.ts) — never on the DOM directly. This wraps a plain
  * { nodes, edges } model in just enough of that interface to run the *real*
- * forceAlignLayout / arrangeLayout / updateGraphStyles / buildDrawioXML in Node.
+ * applySkeletonLayout / arrangeLayout / updateGraphStyles / buildDrawioXML in Node.
  *
  * getBBox() is reproduced from measureNodeSize() in the app builder, so headless
  * node sizes are byte-identical to what the browser renders.
