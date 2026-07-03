@@ -385,6 +385,10 @@ body.history-open .skill-install-pill {
   animation: fadeInDown 0.9s var(--ease-default);
 }
 
+body.legend-top-visible .header {
+  margin-bottom: clamp(14px, 1.8vw, 22px);
+}
+
 .header h1 {
   font-family: var(--app-font-display);
   font-weight: var(--weight-regular);
@@ -467,6 +471,55 @@ body.history-open .skill-install-pill {
   gap: clamp(20px, 2.4vw, 32px);
   align-items: stretch;
   animation: fadeInUp 0.9s var(--ease-default) 0.15s backwards;
+}
+
+.diagram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.diagram-legend--top {
+  display: none;
+  margin: 0 auto clamp(20px, 2.4vw, 32px);
+  animation: fadeInUp 0.9s var(--ease-default) 0.1s backwards;
+}
+
+.diagram-legend--top.is-visible {
+  display: flex;
+}
+
+.diagram-legend--preview {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+.diagram-legend--measure {
+  position: absolute;
+  top: 0;
+  left: -10000px;
+  width: max-content;
+  margin: 0;
+  flex-wrap: nowrap;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.preview-card-header {
+  flex-wrap: wrap;
+  gap: 16px;
+  height: auto;
+}
+
+.preview-header-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
 }
 
 /* ═══════════════════════════════════════
@@ -1495,7 +1548,6 @@ body.history-open .skill-install-pill {
     height: 70vh;
     min-height: 520px;
   }
-
 }
 
 @media (max-width: 768px) {

@@ -1,11 +1,13 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent,
+  type Ref,
 } from "react";
 import G6 from "@antv/g6";
 import { I18N } from "./i18n";
@@ -32,6 +34,7 @@ import { useExportButton } from "./hooks/useExportButton";
 import type { ExportFormat, ExportDoneCallback } from "./hooks/useExportButton";
 import { useUndoRedoShortcuts } from "./hooks/useUndoRedoShortcuts";
 import { useWheelZoomRotate } from "./hooks/useWheelZoomRotate";
+import { canPlaceLegendInPreviewHeader } from "./legendPlacement";
 
 registerCustomNodes(G6);
 
@@ -39,6 +42,7 @@ const FONT_SCALE_MIN = 0.4;
 const FONT_SCALE_MAX = 1.6;
 const FONT_SCALE_RANGE = FONT_SCALE_MAX - FONT_SCALE_MIN;
 const SKILL_INSTALL_COMMAND = "npx skills add ystemsrx/sql_to_er";
+const PREVIEW_HEADER_GAP = 16;
 
 const App = () => {
   const initialLang = detectLang() as Language;
@@ -47,6 +51,11 @@ const App = () => {
   const [showBackground, setShowBackground] = useState(true);
   const [skillCommandCopied, setSkillCommandCopied] = useState(false);
   const skillCopyTimerRef = useRef<number | null>(null);
+  const [legendPlacement, setLegendPlacement] = useState<"preview" | "top">("preview");
+  const previewHeaderRef = useRef<HTMLDivElement | null>(null);
+  const previewTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const previewActionsRef = useRef<HTMLDivElement | null>(null);
+  const legendMeasureRef = useRef<HTMLDivElement | null>(null);
   // 历史快照面板状态
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyItems, setHistoryItems] = useState<SnapshotRecord[]>([]);
@@ -353,6 +362,59 @@ const App = () => {
     [],
   );
 
+  useLayoutEffect(() => {
+    const updateLegendPlacement = () => {
+      const header = previewHeaderRef.current;
+      const title = previewTitleRef.current;
+      const actions = previewActionsRef.current;
+      const legend = legendMeasureRef.current;
+      if (!header || !title || !actions || !legend) return;
+
+      const headerStyle = window.getComputedStyle(header);
+      const horizontalPadding =
+        parseFloat(headerStyle.paddingLeft || "0") + parseFloat(headerStyle.paddingRight || "0");
+      const gap = parseFloat(headerStyle.columnGap || headerStyle.gap || "") || PREVIEW_HEADER_GAP;
+      const nextPlacement = canPlaceLegendInPreviewHeader({
+        headerWidth: header.getBoundingClientRect().width,
+        horizontalPadding,
+        titleWidth: title.getBoundingClientRect().width,
+        legendWidth: legend.getBoundingClientRect().width,
+        actionsWidth: actions.getBoundingClientRect().width,
+        gap,
+      })
+        ? "preview"
+        : "top";
+
+      setLegendPlacement((current) => (current === nextPlacement ? current : nextPlacement));
+    };
+
+    updateLegendPlacement();
+    const frame = window.requestAnimationFrame(updateLegendPlacement);
+    const resizeObserver = new ResizeObserver(updateLegendPlacement);
+    [
+      previewHeaderRef.current,
+      previewTitleRef.current,
+      previewActionsRef.current,
+      legendMeasureRef.current,
+    ]
+      .filter(Boolean)
+      .forEach((el) => resizeObserver.observe(el as Element));
+
+    void document.fonts?.ready.then(updateLegendPlacement);
+    window.addEventListener("resize", updateLegendPlacement);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateLegendPlacement);
+    };
+  }, [lang]);
+
+  useEffect(() => {
+    document.body.classList.toggle("legend-top-visible", legendPlacement === "top");
+    return () => document.body.classList.remove("legend-top-visible");
+  }, [legendPlacement]);
+
   // 时间戳格式化（按当前语言显示本地化的"几秒前 / 时间戳"）
   const formatTimestamp = (ts: number | undefined) => {
     if (!ts) return "";
@@ -380,6 +442,81 @@ const App = () => {
   };
 
   const fontSliderPct = ((fontScale - FONT_SCALE_MIN) / FONT_SCALE_RANGE) * 100;
+
+  const renderDiagramLegend = (
+    className: string,
+    ref?: Ref<HTMLDivElement>,
+    ariaHidden = false,
+  ) => (
+    <div ref={ref} className={className} aria-hidden={ariaHidden || undefined}>
+      <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
+        <div
+          style={{
+            width: "10px",
+            height: "10px",
+            borderRadius: "3px",
+            background: isColored ? "#e0f2fe" : "#fff",
+            border: isColored ? "2px solid #0ea5e9" : "2px solid #1e293b",
+          }}
+        ></div>
+        <span>{t.legendEntity}</span>
+      </div>
+      <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
+        <div
+          style={{
+            width: "10px",
+            height: "10px",
+            transform: "rotate(45deg)",
+            background: isColored ? "#f5f3ff" : "#fff",
+            border: isColored ? "2px solid #8b5cf6" : "2px solid #1e293b",
+          }}
+        ></div>
+        <span style={{ marginLeft: "4px" }}>{t.legendRelation}</span>
+      </div>
+      <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
+        <div
+          style={{
+            width: "10px",
+            height: "10px",
+            borderRadius: "50%",
+            background: "#fff",
+            border: isColored ? "2px solid #94a3b8" : "2px solid #1e293b",
+          }}
+        ></div>
+        <span>{t.legendAttribute}</span>
+      </div>
+      <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "2px",
+          }}
+        >
+          <div
+            style={{
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              background: isColored ? "#ecfdf5" : "#fff",
+              border: isColored ? "2px solid #10b981" : "2px solid #1e293b",
+              boxSizing: "border-box",
+            }}
+          ></div>
+          <div
+            style={{
+              width: "10px",
+              height: "2px",
+              borderRadius: "999px",
+              background: isColored ? "#10b981" : "#1e293b",
+            }}
+          ></div>
+        </div>
+        <span style={{ fontWeight: 600 }}>{t.legendPk}</span>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -423,6 +560,10 @@ const App = () => {
           </button>
         </span>
       </div>
+      {renderDiagramLegend(
+        `diagram-legend diagram-legend--top${legendPlacement === "top" ? " is-visible" : ""}`,
+      )}
+      {renderDiagramLegend("diagram-legend diagram-legend--measure", legendMeasureRef, true)}
       <div className="main-content">
         <div className="input-section">
           <div className="card">
@@ -611,106 +752,15 @@ const App = () => {
 
         <div className="output-section">
           <div className="card">
-            <div className="card-header" style={{ flexWrap: "wrap", gap: "16px", height: "auto" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "24px",
-                  flex: 1,
-                  minWidth: "300px",
-                }}
-              >
-                <h2 className="card-title" style={{ whiteSpace: "nowrap" }}>
-                  <span style={{ fontSize: "1.5rem" }}>🎨</span>
-                  {t.cardPreviewTitle}
-                </h2>
+            <div ref={previewHeaderRef} className="card-header preview-card-header">
+              <h2 ref={previewTitleRef} className="card-title" style={{ whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: "1.5rem" }}>🎨</span>
+                {t.cardPreviewTitle}
+              </h2>
+              {legendPlacement === "preview" &&
+                renderDiagramLegend("diagram-legend diagram-legend--preview")}
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "8px",
-                    alignItems: "center",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
-                    <div
-                      style={{
-                        width: "10px",
-                        height: "10px",
-                        borderRadius: "3px",
-                        background: isColored ? "#e0f2fe" : "#fff",
-                        border: isColored ? "2px solid #0ea5e9" : "2px solid #1e293b",
-                      }}
-                    ></div>
-                    <span>{t.legendEntity}</span>
-                  </div>
-                  <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
-                    <div
-                      style={{
-                        width: "10px",
-                        height: "10px",
-                        transform: "rotate(45deg)",
-                        background: isColored ? "#f5f3ff" : "#fff",
-                        border: isColored ? "2px solid #8b5cf6" : "2px solid #1e293b",
-                      }}
-                    ></div>
-                    <span style={{ marginLeft: "4px" }}>{t.legendRelation}</span>
-                  </div>
-                  <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
-                    <div
-                      style={{
-                        width: "10px",
-                        height: "10px",
-                        borderRadius: "50%",
-                        background: isColored ? "#fff" : "#fff",
-                        border: isColored ? "2px solid #94a3b8" : "2px solid #1e293b",
-                      }}
-                    ></div>
-                    <span>{t.legendAttribute}</span>
-                  </div>
-                  <div className="legend-item" style={{ padding: "4px 10px", fontSize: "0.8rem" }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        gap: "2px",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: "10px",
-                          height: "10px",
-                          borderRadius: "50%",
-                          background: isColored ? "#ecfdf5" : "#fff",
-                          border: isColored ? "2px solid #10b981" : "2px solid #1e293b",
-                          boxSizing: "border-box",
-                        }}
-                      ></div>
-                      <div
-                        style={{
-                          width: "10px",
-                          height: "2px",
-                          borderRadius: "999px",
-                          background: isColored ? "#10b981" : "#1e293b",
-                        }}
-                      ></div>
-                    </div>
-                    <span style={{ fontWeight: 600 }}>{t.legendPk}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "16px",
-                  marginLeft: "auto",
-                }}
-              >
+              <div ref={previewActionsRef} className="preview-header-actions">
                 <button
                   className="btn btn-sm btn-accent"
                   onClick={handleArrangeLayout}
