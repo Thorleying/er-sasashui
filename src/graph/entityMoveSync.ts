@@ -90,6 +90,32 @@ const boxesOverlap = (a: Point, as: NodeSize, b: Point, bs: NodeSize, gap = 0): 
   Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap &&
   Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
 
+const cross2 = (ax: number, ay: number, bx: number, by: number): number => ax * by - ay * bx;
+
+const segmentsIntersect = (a: Point, b: Point, c: Point, d: Point): boolean => {
+  const d1 = cross2(d.x - c.x, d.y - c.y, a.x - c.x, a.y - c.y);
+  const d2 = cross2(d.x - c.x, d.y - c.y, b.x - c.x, b.y - c.y);
+  const d3 = cross2(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+  const d4 = cross2(b.x - a.x, b.y - a.y, d.x - a.x, d.y - a.y);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+};
+
+const segmentHitsBox = (a: Point, b: Point, center: Point, size: NodeSize, inset = 0): boolean => {
+  const minX = center.x - size.width / 2 + inset;
+  const maxX = center.x + size.width / 2 - inset;
+  const minY = center.y - size.height / 2 + inset;
+  const maxY = center.y + size.height / 2 - inset;
+  if (minX >= maxX || minY >= maxY) return false;
+  if (a.x > minX && a.x < maxX && a.y > minY && a.y < maxY) return true;
+  if (b.x > minX && b.x < maxX && b.y > minY && b.y < maxY) return true;
+  return (
+    segmentsIntersect(a, b, { x: minX, y: minY }, { x: maxX, y: minY }) ||
+    segmentsIntersect(a, b, { x: maxX, y: minY }, { x: maxX, y: maxY }) ||
+    segmentsIntersect(a, b, { x: maxX, y: maxY }, { x: minX, y: maxY }) ||
+    segmentsIntersect(a, b, { x: minX, y: maxY }, { x: minX, y: minY })
+  );
+};
+
 function entityIdsForRelationship(
   relId: string,
   nodeById: Map<string, ERNodeModel>,
@@ -107,6 +133,40 @@ function entityIdsForRelationship(
     if (target.id === relId && source.nodeType === "entity") ids.push(source.id);
   });
   return [...new Set(ids)];
+}
+
+function relationshipEdgeSegment(
+  entity: ERNodeModel,
+  relationship: ERNodeModel,
+  sizeOf?: NodeSizeResolver,
+): { a: Point; b: Point } {
+  const entityPos = positionOf(entity);
+  const relationshipPos = positionOf(relationship);
+  const dx = relationshipPos.x - entityPos.x;
+  const dy = relationshipPos.y - entityPos.y;
+  const dist = Math.hypot(dx, dy) || 1;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const entitySize = safeSize(entity, sizeOf);
+  const relationshipSize = safeSize(relationship, sizeOf);
+  const entityBoundary = rectBoundary(entitySize.width / 2, entitySize.height / 2, ux, uy);
+  const relationshipBoundary = diamondBoundary(
+    relationshipSize.width / 2,
+    relationshipSize.height / 2,
+    -ux,
+    -uy,
+  );
+
+  return {
+    a: {
+      x: entityPos.x + ux * entityBoundary,
+      y: entityPos.y + uy * entityBoundary,
+    },
+    b: {
+      x: relationshipPos.x - ux * relationshipBoundary,
+      y: relationshipPos.y - uy * relationshipBoundary,
+    },
+  };
 }
 
 function computeRelationshipAnchor(
@@ -248,6 +308,39 @@ export function computeAttributeRotationTargets(
   const relationshipObstacles = nodes
     .filter((node) => node.nodeType === "relationship")
     .map((node) => ({ node, pos: positionOf(node), size: safeSize(node, sizeOf) }));
+  const relationshipLineObstacles = edges
+    .map((edge) => {
+      if (edge.edgeType !== "entity-relationship" && edge.edgeType !== "relationship-entity") {
+        return null;
+      }
+      const source = nodeById.get(edge.source);
+      const target = nodeById.get(edge.target);
+      if (!source || !target) return null;
+      const entity =
+        source.nodeType === "entity" ? source : target.nodeType === "entity" ? target : null;
+      const relationship =
+        source.nodeType === "relationship"
+          ? source
+          : target.nodeType === "relationship"
+            ? target
+            : null;
+      if (!entity || !relationship) return null;
+      return {
+        entityId: entity.id,
+        relationshipId: relationship.id,
+        ...relationshipEdgeSegment(entity, relationship, sizeOf),
+      };
+    })
+    .filter(
+      (
+        obstacle,
+      ): obstacle is {
+        entityId: string;
+        relationshipId: string;
+        a: Point;
+        b: Point;
+      } => !!obstacle,
+    );
 
   const attributeObstacles = nodes
     .filter((node) => node.nodeType === "attribute")
@@ -276,6 +369,10 @@ export function computeAttributeRotationTargets(
     relationshipObstacles.forEach((obstacle) => {
       const gap = relatedRelationshipIds.has(obstacle.node.id) ? ATTRIBUTE_DIAMOND_GAP : 2;
       if (boxesOverlap(point, attrSize, obstacle.pos, obstacle.size, gap)) hard++;
+    });
+    relationshipLineObstacles.forEach((obstacle) => {
+      if (!relatedRelationshipIds.has(obstacle.relationshipId)) return;
+      if (segmentHitsBox(obstacle.a, obstacle.b, point, attrSize, 1)) hard++;
     });
     attributeObstacles.forEach((obstacle) => {
       if (obstacle.node.id === attr.id) return;
