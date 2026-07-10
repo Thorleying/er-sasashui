@@ -113,7 +113,7 @@ describe("auto avoidance targets", () => {
     expect(targets.has("attr-users-name")).toBe(true);
     expect(targets.has("entity-users")).toBe(false);
     expect(nodes[0]).toMatchObject({ x: 0, y: 0 });
-    expect(overlaps(nodes[0], nodes[1])).toBe(false);
+    expect(overlaps(nodes[0], nodes[1], 0)).toBe(false);
   });
 
   it("moves an attribute before moving a relationship diamond", () => {
@@ -142,7 +142,7 @@ describe("auto avoidance targets", () => {
 
     expect(targets.has("attr-users-name")).toBe(true);
     expect(targets.has("rel-orders-users")).toBe(false);
-    expect(overlaps(nodes[0], nodes[1])).toBe(false);
+    expect(overlaps(nodes[0], nodes[1], 0)).toBe(false);
   });
 
   it("only moves allowed non-entity ids when movable ids are provided", () => {
@@ -196,7 +196,7 @@ describe("auto avoidance targets", () => {
     expect(targets.has("rel-orders-users")).toBe(true);
     expect(targets.has("entity-users")).toBe(false);
     expect(nodes[0]).toMatchObject({ x: 0, y: 0 });
-    expect(overlaps(nodes[0], nodes[1])).toBe(false);
+    expect(overlaps(nodes[0], nodes[1], 0)).toBe(false);
   });
 
   it("moves an attribute whose connector crosses a relationship line even when boxes do not overlap", () => {

@@ -1,4 +1,6 @@
 import type { GraphLike } from "../types";
+import { measureNodeSize } from "../builder";
+import { computeLayoutSizeScale } from "./sizeAwareGeometry";
 
 interface ForceableGraph extends GraphLike {
   on(event: string, handler: (e: any) => void): void;
@@ -13,7 +15,6 @@ export interface ForceLoopController {
 interface NodeMetrics {
   width: number;
   height: number;
-  baseRadius: number;
   componentRadius: number;
 }
 
@@ -33,20 +34,11 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
   let warmupRemaining = 0;
   const velocities = new Map<string, { vx: number; vy: number }>();
 
-  const baseRadius = (m: any): number => {
-    const sizes: Record<string, number> = {
-      entity: 80,
-      relationship: 50,
-      attribute: 50,
-    };
-    return sizes[m?.nodeType] || 50;
-  };
-
   const metrics = (node: ReturnType<ForceableGraph["getNodes"]>[number]): NodeMetrics => {
     const model = node.getModel() as any;
-    const fallbackRadius = baseRadius(model);
-    let width = fallbackRadius * 2;
-    let height = fallbackRadius * 2;
+    const fallback = measureNodeSize(model);
+    let width = fallback.width;
+    let height = fallback.height;
     const bbox = node.getBBox?.();
     if (bbox) {
       if (Number.isFinite(bbox.width) && bbox.width > 0) width = bbox.width;
@@ -55,8 +47,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     return {
       width,
       height,
-      baseRadius: fallbackRadius,
-      componentRadius: Math.max(fallbackRadius, Math.hypot(width, height) / 2),
+      componentRadius: Math.hypot(width, height) / 2,
     };
   };
 
@@ -70,7 +61,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       ay > 1e-6 ? halfHeight / ay : Infinity,
     );
     const safeMeasured = Number.isFinite(measured) ? measured : Math.max(halfWidth, halfHeight);
-    return Math.max(metric.baseRadius, safeMeasured);
+    return safeMeasured;
   };
 
   const componentIds = (
@@ -110,6 +101,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     adj: Map<string, Set<string>>,
     pos: Record<string, { x: number; y: number }>,
     nodeMetrics: Record<string, NodeMetrics>,
+    sizeScale: number,
   ): Map<string, Set<string>> => {
     const { byId, groups } = componentIds(ids, adj);
     const centers = groups.map((group) => {
@@ -140,7 +132,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       return { ...center, radius };
     });
     const skipped = new Map<string, Set<string>>();
-    const COMPONENT_REPEL_MARGIN = 140;
+    const COMPONENT_REPEL_MARGIN = 140 * sizeScale;
 
     for (let i = 0; i < ids.length; i++) {
       const a = ids[i];
@@ -193,12 +185,22 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     });
 
     const ids = Object.keys(pos);
-    const skippedCrossComponentRepulsion = buildComponentRepelMask(ids, adj, pos, nodeMetrics);
-    const IDEAL = 130;
+    const sizeScale = computeLayoutSizeScale(
+      nodes.map((node) => node.getModel()),
+      (node) => nodeMetrics[node.id],
+    );
+    const skippedCrossComponentRepulsion = buildComponentRepelMask(
+      ids,
+      adj,
+      pos,
+      nodeMetrics,
+      sizeScale,
+    );
+    const IDEAL = 130 * sizeScale;
     const K_ATTRACT = 0.04;
-    const K_REPEL = 9000;
+    const K_REPEL = 9000 * sizeScale * sizeScale * sizeScale;
     const DAMPING = 0.78;
-    const MAX_V = 16;
+    const MAX_V = 16 * sizeScale;
 
     // easeOutCubic：第一帧位移≈0，第 WARMUP_TOTAL 帧及之后位移=正常
     const t = warmupRemaining > 0 ? 1 - warmupRemaining / WARMUP_TOTAL : 1;
@@ -223,12 +225,14 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
         const dx = p.x - op.x;
         const dy = p.y - op.y;
         let d2 = dx * dx + dy * dy;
-        if (d2 < 1) d2 = 1;
+        if (d2 < sizeScale * sizeScale) d2 = sizeScale * sizeScale;
         const d = Math.sqrt(d2);
         const ux = dx / d;
         const uy = dy / d;
         const minD =
-          directionalRadius(metric, ux, uy) + directionalRadius(nodeMetrics[oid], -ux, -uy) + 8;
+          directionalRadius(metric, ux, uy) +
+          directionalRadius(nodeMetrics[oid], -ux, -uy) +
+          8 * sizeScale;
         const mag = K_REPEL / d2 + (d < minD ? (minD - d) * 0.8 : 0);
         fx += ux * mag;
         fy += uy * mag;

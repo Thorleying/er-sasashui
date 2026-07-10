@@ -58,7 +58,15 @@ type AgentState = {
     commentLabel?: string;
     manualLabel?: string;
   }>;
-  edges: Array<{ id: string; source: string; target: string; edgeType: string; label?: string }>;
+  edges: Array<{
+    id: string;
+    source: string;
+    target: string;
+    edgeType: string;
+    label?: string;
+    type?: string;
+    curveOffset?: number;
+  }>;
 };
 
 function readState(path: string): AgentState {
@@ -1120,6 +1128,167 @@ describe("sql2er agent CLI layout modes", () => {
   });
 });
 
+describe("sql2er agent CLI font scaling", () => {
+  it("keeps every coordinate unchanged when the rendered node sizes do not change", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const initial = {
+        version: 1,
+        input: "manual",
+        format: "sql",
+        settings: {
+          colored: true,
+          comment: false,
+          hideAttrs: false,
+          fontScale: 1,
+          attrMode: "moderate",
+          autoAvoid: true,
+        },
+        nodes: [
+          { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+          {
+            id: "attr-a-x",
+            type: "attribute",
+            label: "x",
+            nodeType: "attribute",
+            parentEntity: "entity-a",
+            keyType: "normal",
+            x: 250,
+            y: 100,
+          },
+          {
+            id: "attr-a-y",
+            type: "attribute",
+            label: "y",
+            nodeType: "attribute",
+            parentEntity: "entity-a",
+            keyType: "normal",
+            x: 100,
+            y: 280,
+          },
+        ],
+        edges: [
+          {
+            id: "edge-a-x",
+            source: "entity-a",
+            target: "attr-a-x",
+            edgeType: "entity-attribute",
+          },
+          {
+            id: "edge-a-y",
+            source: "entity-a",
+            target: "attr-a-y",
+            edgeType: "entity-attribute",
+          },
+        ],
+      } satisfies AgentState;
+      writeFileSync(state, JSON.stringify(initial));
+
+      const adjusted = runAgent(["fontsize", "1", "--state", state]);
+
+      expect(adjusted.status).toBe(0);
+      const next = readState(state);
+      expect(next.settings.fontScale).toBeCloseTo(1.1, 8);
+      expect(next.nodes.map(({ id, x, y }) => ({ id, x, y }))).toEqual(
+        initial.nodes.map(({ id, x, y }) => ({ id, x, y })),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scales existing line vectors and curve offsets by the measured shape change", () => {
+    const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
+    try {
+      const state = resolve(dir, "er.json");
+      const initial = {
+        version: 1,
+        input: "manual",
+        format: "sql",
+        settings: {
+          colored: true,
+          comment: false,
+          hideAttrs: false,
+          fontScale: 1,
+          attrMode: "moderate",
+          autoAvoid: true,
+        },
+        nodes: [
+          { id: "entity-a", type: "entity", label: "a", nodeType: "entity", x: 100, y: 100 },
+          {
+            id: "attr-a-x",
+            type: "attribute",
+            label: "x",
+            nodeType: "attribute",
+            parentEntity: "entity-a",
+            keyType: "normal",
+            x: 20,
+            y: 160,
+          },
+          {
+            id: "rel-a-b",
+            type: "relationship",
+            label: "r",
+            nodeType: "relationship",
+            x: 260,
+            y: 140,
+          },
+          { id: "entity-b", type: "entity", label: "b", nodeType: "entity", x: 420, y: 220 },
+        ],
+        edges: [
+          {
+            id: "edge-a-x",
+            source: "entity-a",
+            target: "attr-a-x",
+            edgeType: "entity-attribute",
+          },
+          {
+            id: "edge-a-rel",
+            source: "entity-a",
+            target: "rel-a-b",
+            edgeType: "entity-relationship",
+            type: "self-loop-arc",
+            curveOffset: 22,
+          },
+          {
+            id: "edge-rel-b",
+            source: "rel-a-b",
+            target: "entity-b",
+            edgeType: "relationship-entity",
+          },
+        ],
+      } satisfies AgentState;
+      writeFileSync(state, JSON.stringify(initial));
+
+      const adjusted = runAgent(["fontsize", "-5", "--state", state]);
+
+      expect(adjusted.status).toBe(0);
+      const next = readState(state);
+      expect(next.settings.fontScale).toBeCloseTo(0.5, 8);
+      const beforeById = new Map(initial.nodes.map((node) => [node.id, node]));
+      const afterById = new Map(next.nodes.map((node) => [node.id, node]));
+      initial.edges.forEach((edge) => {
+        const beforeSource = beforeById.get(edge.source)!;
+        const beforeTarget = beforeById.get(edge.target)!;
+        const afterSource = afterById.get(edge.source)!;
+        const afterTarget = afterById.get(edge.target)!;
+        expect(afterTarget.x - afterSource.x).toBeCloseTo(
+          (beforeTarget.x - beforeSource.x) * 0.5,
+          6,
+        );
+        expect(afterTarget.y - afterSource.y).toBeCloseTo(
+          (beforeTarget.y - beforeSource.y) * 0.5,
+          6,
+        );
+      });
+      expect(next.edges.find((edge) => edge.id === "edge-a-rel")?.curveOffset).toBeCloseTo(11, 6);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("sql2er agent CLI auto avoidance", () => {
   it("auto-avoids overlaps by default after a mutating command", () => {
     const dir = mkdtempSync(resolve(tmpdir(), "sql2er-agent-"));
@@ -1127,7 +1296,7 @@ describe("sql2er agent CLI auto avoidance", () => {
       const state = resolve(dir, "er.json");
       writeFileSync(state, JSON.stringify(makeOverlappingState()));
 
-      const adjusted = runAgent(["fontsize", "0", "--state", state]);
+      const adjusted = runAgent(["nudge", "attr-users-name", "0", "0", "--state", state]);
 
       expect(adjusted.status).toBe(0);
       const next = readState(state);
@@ -1155,7 +1324,7 @@ describe("sql2er agent CLI auto avoidance", () => {
 
       const disabled = runAgent(["avoid", "off", "--state", state]);
       expect(disabled.status).toBe(0);
-      const adjusted = runAgent(["fontsize", "0", "--state", state]);
+      const adjusted = runAgent(["nudge", "attr-users-name", "0", "0", "--state", state]);
 
       expect(adjusted.status).toBe(0);
       const next = readState(state);
@@ -1212,7 +1381,7 @@ describe("sql2er agent CLI auto avoidance", () => {
         ),
       ).toBe(true);
 
-      const adjusted = runAgent(["fontsize", "0", "--state", state]);
+      const adjusted = runAgent(["nudge", "attr-users-name", "0", "0", "--state", state]);
 
       expect(adjusted.status).toBe(0);
       const next = readState(state);

@@ -4,6 +4,8 @@
  * - Position disconnected components around the center before first render
  */
 
+import { measureNodeSize } from "../builder";
+import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
 import { deterministicHash, deterministicRandom } from "./utils";
 
     /**
@@ -21,15 +23,11 @@ import { deterministicHash, deterministicRandom } from "./utils";
         const height = containerEl.offsetHeight || 800;
         const center = { x: width / 2, y: height / 2 };
 
-        const sizeMap = {
-            entity: 140,
-            relationship: 90,
-            attribute: 90
-        };
+        const sizeScale = computeLayoutSizeScale(nodes);
 
         const approxRadius = (node) => {
-            const size = sizeMap[node.nodeType] || 90;
-            return Math.sqrt(size * size * 2) / 2 + 20;
+            const size = measureNodeSize(node);
+            return Math.hypot(size.width, size.height) / 2 + 20 * sizeScale;
         };
 
         const adj = new Map<string, Set<string>>();
@@ -69,16 +67,22 @@ import { deterministicHash, deterministicRandom } from "./utils";
         if (components.length < 2) return;
 
         const compMeta = components.map(list => {
-            const r = list.reduce((max, n) => Math.max(max, approxRadius(n)), 30);
-            const extra = Math.max(0, list.length - 6) * 6;
+            const r = list.reduce(
+                (max, n) => Math.max(max, approxRadius(n)),
+                30 * sizeScale,
+            );
+            const extra = Math.max(0, list.length - 6) * 6 * sizeScale;
             return { nodes: list, radius: r + extra };
         });
 
         const perim = compMeta.reduce((sum, c) => sum + c.radius * 2, 0);
-        const gap = 100;
+        const gap = 100 * sizeScale;
         const orbit = Math.min(
-            Math.max(240, (perim + gap * compMeta.length) / (2 * Math.PI)),
-            520
+            Math.max(
+                240 * sizeScale,
+                (perim + gap * compMeta.length) / (2 * Math.PI),
+            ),
+            520 * sizeScale
         );
 
         let angle = -Math.PI / 2;
@@ -88,8 +92,12 @@ import { deterministicHash, deterministicRandom } from "./utils";
             const cy = center.y + orbit * Math.sin(angle);
             meta.nodes.forEach((n, idx) => {
                 const hash = deterministicHash(n.id, seed);
-                const offsetX = deterministicRandom(hash, seed) * Math.max(40, meta.radius * 0.4);
-                const offsetY = deterministicRandom(hash + 1000, seed) * Math.max(40, meta.radius * 0.4);
+                const offsetX =
+                    deterministicRandom(hash, seed) *
+                    Math.max(40 * sizeScale, meta.radius * 0.4);
+                const offsetY =
+                    deterministicRandom(hash + 1000, seed) *
+                    Math.max(40 * sizeScale, meta.radius * 0.4);
                 n.x = cx + offsetX;
                 n.y = cy + offsetY;
             });

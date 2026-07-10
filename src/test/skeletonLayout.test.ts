@@ -4,6 +4,7 @@ import {
   buildEntitySkeleton,
   computeSkeletonEmbedding,
 } from "../layout/skeletonLayout";
+import { applyFontScaleToModels } from "../graph/updateGraphStyles";
 import type { EREdgeModel, ERNodeModel } from "../types";
 
 const entity = (id: string): ERNodeModel => ({
@@ -160,5 +161,24 @@ describe("entity skeleton layout", () => {
     expect(
       Math.hypot((loop1.x ?? 0) - (loop2.x ?? 0), (loop1.y ?? 0) - (loop2.y ?? 0)),
     ).toBeGreaterThan(20);
+  });
+
+  it("scales explicit-layout distances with the measured small-font geometry", () => {
+    const makeLayout = (fontScale: number) => {
+      const rel = relation("rel-a-b", "entity-a", "entity-b");
+      const nodes = [entity("entity-a"), entity("entity-b"), rel.node];
+      const edges = rel.edges;
+      applyFontScaleToModels(nodes, edges, fontScale);
+      applySkeletonLayout(nodes, edges, { stressIterations: 20 });
+      const byId = new Map(nodes.map((node) => [node.id, node]));
+      const a = byId.get("entity-a")!;
+      const b = byId.get("entity-b")!;
+      return Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? 0) - (b.y ?? 0));
+    };
+
+    const normalDistance = makeLayout(1);
+    const smallDistance = makeLayout(0.4);
+
+    expect(smallDistance / normalDistance).toBeCloseTo(0.4, 6);
   });
 });

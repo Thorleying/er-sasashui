@@ -6,6 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { buildDrawioXML } from "@app/exporter";
 import { measureNodeSize, getTextWidth } from "@app/builder";
+import { computeLayoutSizeScale } from "@app/graph/sizeAwareGeometry";
 import type { ERNodeModel, GraphLike } from "@app/types";
 import { createHeadlessGraph } from "./adapter";
 import type { State } from "./ops";
@@ -134,6 +135,7 @@ interface Sized {
 }
 
 export function exportSvg(state: State): string {
+  const sizeScale = computeLayoutSizeScale(state.nodes);
   const sized = new Map<string, Sized>();
   let minX = Infinity,
     minY = Infinity,
@@ -153,7 +155,7 @@ export function exportSvg(state: State): string {
     minX = minY = 0;
     maxX = maxY = 100;
   }
-  const pad = 40;
+  const pad = 40 * sizeScale;
   const vbX = minX - pad;
   const vbY = minY - pad;
   const vbW = maxX - minX + pad * 2;
@@ -246,6 +248,10 @@ export function exportSvg(state: State): string {
     const s = sized.get(e.source);
     const t = sized.get(e.target);
     if (!s || !t) return;
+    const rawEdgeFontSize = Number(e.labelCfg?.style?.fontSize);
+    const edgeFontSize =
+      Number.isFinite(rawEdgeFontSize) && rawEdgeFontSize > 0 ? rawEdgeFontSize : 12;
+    const labelScale = edgeFontSize / 12;
     let mx = (s.cx + t.cx) / 2;
     let my = (s.cy + t.cy) / 2;
     if (isArc(e)) {
@@ -255,10 +261,10 @@ export function exportSvg(state: State): string {
       my = (my + c.y) / 2;
     }
     parts.push(
-      `<rect x="${(mx - 7).toFixed(1)}" y="${(my - 8).toFixed(1)}" width="14" height="14" fill="#fff"/>`,
+      `<rect x="${(mx - 7 * labelScale).toFixed(1)}" y="${(my - 8 * labelScale).toFixed(1)}" width="${(14 * labelScale).toFixed(1)}" height="${(14 * labelScale).toFixed(1)}" fill="#fff"/>`,
     );
     parts.push(
-      `<text x="${mx.toFixed(1)}" y="${(my + 4).toFixed(1)}" font-size="12" fill="#000" text-anchor="middle">${esc(e.label)}</text>`,
+      `<text x="${mx.toFixed(1)}" y="${(my + 4 * labelScale).toFixed(1)}" font-size="${edgeFontSize}" fill="#000" text-anchor="middle">${esc(e.label)}</text>`,
     );
   });
 

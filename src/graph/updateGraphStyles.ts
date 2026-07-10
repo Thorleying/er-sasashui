@@ -1,4 +1,4 @@
-import type { ERNodeModel, GraphLike } from "../types";
+import type { EREdgeModel, ERNodeModel, GraphLike } from "../types";
 
 // G6 updateItem 的"上层 props"字段名/类型很灵活，这里就是装填样式属性的字典。
 interface StylesUpdate {
@@ -7,14 +7,45 @@ interface StylesUpdate {
   [key: string]: unknown;
 }
 
-const clampFontScale = (scale: number | undefined): number => {
+export const clampFontScale = (scale: number | undefined): number => {
   if (!Number.isFinite(scale)) return 1;
   return Math.min(1.6, Math.max(0.4, scale as number));
 };
 
-const nodeFontSize = (model: ERNodeModel, scale: number): number => {
+export const nodeFontSize = (model: ERNodeModel, scale: number): number => {
   const base = model.nodeType === "entity" ? 18 : model.nodeType === "relationship" ? 16 : 15;
   return base * scale;
+};
+
+/**
+ * Write font sizes to plain graph models before a renderer or layout sees them.
+ * This keeps the initial Web force layout and the headless CLI on the same
+ * measured geometry as the eventual custom-node render.
+ */
+export const applyFontScaleToModels = (
+  nodes: ERNodeModel[],
+  edges: EREdgeModel[],
+  fontScale: number = 1,
+): void => {
+  const safeFontScale = clampFontScale(fontScale);
+  nodes.forEach((model) => {
+    model.labelCfg = {
+      ...model.labelCfg,
+      style: {
+        ...(model.labelCfg?.style ?? {}),
+        fontSize: nodeFontSize(model, safeFontScale),
+      },
+    };
+  });
+  edges.forEach((model) => {
+    model.labelCfg = {
+      ...model.labelCfg,
+      style: {
+        ...(model.labelCfg?.style ?? {}),
+        fontSize: 12 * safeFontScale,
+      },
+    };
+  });
 };
 
 /**

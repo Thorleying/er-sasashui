@@ -9,6 +9,7 @@ import {
   applySkeletonLayout,
   animateNodesToTargets,
   arrangeLayout,
+  cancelNodeAnimation,
   placeAttributesModerate,
   smoothFitView,
   spreadDisconnectedComponents,
@@ -21,7 +22,13 @@ import { createERGraph, buildDefaultLayoutCfg } from "../graph/createERGraph";
 import { attachEntityDragSync, type DragChangeMeta } from "../graph/attachEntityDragSync";
 import { attachForceLoop } from "../graph/forceLoop";
 import type { ForceLoopController } from "../graph/forceLoop";
-import { updateGraphStyles } from "../graph/updateGraphStyles";
+import { applyFontScaleToModels, updateGraphStyles } from "../graph/updateGraphStyles";
+import {
+  applyLayoutSizeScaleToEdges,
+  applySizeChangeToGraph,
+  captureGraphGeometry,
+  computeLayoutSizeScale,
+} from "../graph/sizeAwareGeometry";
 import { computeAutoAvoidTargets } from "../graph/autoAvoid";
 import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
 import type {
@@ -133,7 +140,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const forceCtrlRef = useRef<ForceLoopController | null>(null);
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
-  const fontScaleAutoAvoidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorShowFrameRef = useRef<number | null>(null);
   const parserWarningsHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const parserWarningsShowFrameRef = useRef<number | null>(null);
@@ -238,12 +244,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     else void persistCurrentSnapshot();
   };
 
-  const cancelScheduledFontScaleAutoAvoid = () => {
-    if (fontScaleAutoAvoidTimerRef.current === null) return;
-    clearTimeout(fontScaleAutoAvoidTimerRef.current);
-    fontScaleAutoAvoidTimerRef.current = null;
-  };
-
   const clearParserWarningHideTimer = () => {
     if (parserWarningsHideTimerRef.current === null) return;
     clearTimeout(parserWarningsHideTimerRef.current);
@@ -315,18 +315,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     scheduleErrorFadeIn();
   };
 
-  const scheduleFontScaleAutoAvoid = (delayMs = 180) => {
-    cancelScheduledFontScaleAutoAvoid();
-    if (!autoAvoidRef.current) {
-      scheduleCurrentSnapshotPersist(700);
-      return;
-    }
-    fontScaleAutoAvoidTimerRef.current = setTimeout(() => {
-      fontScaleAutoAvoidTimerRef.current = null;
-      applyGraphAutoAvoid(220, () => scheduleCurrentSnapshotPersist(700));
-    }, delayMs);
-  };
-
   // 公共关闭：智能调整 / 快速布局 / 切换历史 / 显隐属性 / 重新生成
   // 都会让"持续力导向"复位为关闭。状态、ref、控制器三处同步。
   const disableForceIfOn = () => {
@@ -353,7 +341,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       // 重新生成 / 历史恢复都会重建图，先把持续力导向开关复位关闭，避免
       // 旧 controller 的状态意外延续到新图。
       disableForceIfOn();
-      cancelScheduledFontScaleAutoAvoid();
 
       const trimmed = String(useInputText || "").trim();
       if (!trimmed) {
@@ -418,6 +405,12 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         useShowComment ? "comment" : "name",
         useHideFields,
       );
+      // Font sizes must be present before any seed/force layout measures nodes.
+      // Applying them only after graph.render() leaves small-font diagrams spaced
+      // with the default-size geometry.
+      applyFontScaleToModels(nodes, edges, useFontScale);
+      const generatedSizeScale = computeLayoutSizeScale(nodes);
+      applyLayoutSizeScaleToEdges(edges, generatedSizeScale);
 
       if (positionMap) {
         // 恢复历史快照路径：直接按快照位置/标签覆盖
@@ -450,25 +443,29 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       // 恢复路径下不跑力布局；其余使用默认 force2 配置
       let layoutCfg: Record<string, unknown> | undefined;
       if (!positionMap) {
-        layoutCfg = buildDefaultLayoutCfg(container.offsetWidth, {
-          tick: () => graph.refreshPositions(),
-          onLayoutEnd: () => {
-            // 先让互不相连的组件环绕分布，避免十字交叉
-            setTimeout(() => {
-              if (graphRef.current && !graphRef.current.destroyed) {
-                spreadDisconnectedComponents(graphRef.current, () => {
-                  if (autoAvoidRef.current) {
-                    applyGraphAutoAvoid(360, () =>
-                      smoothFitView(graphRef.current, 800, "easeOutCubic"),
-                    );
-                  } else {
-                    smoothFitView(graphRef.current, 800, "easeOutCubic");
-                  }
-                });
-              }
-            }, 30);
+        layoutCfg = buildDefaultLayoutCfg(
+          container.offsetWidth,
+          {
+            tick: () => graph.refreshPositions(),
+            onLayoutEnd: () => {
+              // 先让互不相连的组件环绕分布，避免十字交叉
+              setTimeout(() => {
+                if (graphRef.current && !graphRef.current.destroyed) {
+                  spreadDisconnectedComponents(graphRef.current, () => {
+                    if (autoAvoidRef.current) {
+                      applyGraphAutoAvoid(360, () =>
+                        smoothFitView(graphRef.current, 800, "easeOutCubic"),
+                      );
+                    } else {
+                      smoothFitView(graphRef.current, 800, "easeOutCubic");
+                    }
+                  });
+                }
+              }, 30);
+            },
           },
-        });
+          nodes,
+        );
       }
 
       const graph = createERGraph({
@@ -627,12 +624,18 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const setFontScale = (next: number) => {
     const safeNext = Math.min(1.6, Math.max(0.4, next));
+    disableForceIfOn();
     stateRef.current.fontScale = safeNext;
     setFontScaleState(safeNext);
-    if (hasGraph && graphRef.current) {
-      applyGraphStyles(graphRef.current, stateRef.current.isColored, safeNext);
-      scheduleFontScaleAutoAvoid();
-    }
+    const graph = graphRef.current;
+    if (!hasGraph || !graph || graph.destroyed) return;
+    cancelNodeAnimation(graph);
+    const before = captureGraphGeometry(graph);
+    updateGraphStyles(graph, stateRef.current.isColored, safeNext);
+    applySizeChangeToGraph(graph, before);
+    patchRelationshipLinkPoints(graph);
+    graph.refresh?.();
+    scheduleCurrentSnapshotPersist(700);
   };
 
   const setForceOn = (next: boolean) => {
@@ -652,7 +655,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     stateRef.current.autoAvoid = next;
     setAutoAvoidState(next);
     if (!next) {
-      cancelScheduledFontScaleAutoAvoid();
       return;
     }
     if (!hasGraph || !graphRef.current || graphRef.current.destroyed) return;
@@ -696,7 +698,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   useEffect(() => {
     handleGenerate();
     return () => {
-      cancelScheduledFontScaleAutoAvoid();
       cancelErrorShowFrame();
       clearParserWarningHideTimer();
       cancelParserWarningShowFrame();

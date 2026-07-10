@@ -1,8 +1,8 @@
 import { measureNodeSize } from "../builder";
+import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
 import type { EREdgeModel, ERNodeModel } from "../types";
 
 const TAU = Math.PI * 2;
-const GAP = 8;
 
 interface Pt {
   x: number;
@@ -60,16 +60,21 @@ const maxHalfOf = (m: ERNodeModel) => {
   return Math.max(s.width, s.height) / 2;
 };
 
-export function ringRadiusFor(entity: ERNodeModel, attrs: ERNodeModel[]): number {
+export function ringRadiusFor(
+  entity: ERNodeModel,
+  attrs: ERNodeModel[],
+  sizeScale = computeLayoutSizeScale([entity, ...attrs]),
+): number {
   const entR = halfDiag(entity);
   if (!attrs.length) return entR;
   const halves = attrs.map(maxHalfOf);
   const maxHalf = Math.max(...halves);
-  const radialMin = entR + maxHalf + GAP;
+  const gap = 8 * sizeScale;
+  const radialMin = entR + maxHalf + gap;
   const target = TAU * 0.92;
   const sum = (radius: number) =>
     halves.reduce(
-      (acc, half) => acc + 2 * Math.asin(Math.min(0.999, (half + GAP / 2) / radius)),
+      (acc, half) => acc + 2 * Math.asin(Math.min(0.999, (half + gap / 2) / radius)),
       0,
     );
   let lo = radialMin;
@@ -762,6 +767,7 @@ function placeRelationshipNodes(
   skeleton: EntitySkeleton,
   embedding: SkeletonEmbedding,
   ring: Map<string, number>,
+  sizeScale: number,
 ): void {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const entities = nodes.filter((node) => node.nodeType === "entity");
@@ -789,13 +795,14 @@ function placeRelationshipNodes(
     if (!relItems.length) return;
     const maxHalf = Math.max(...relItems.map(halfDiag));
     const mid = (relItems.length - 1) / 2;
-    const extra = deferred.has(edge.key) ? maxHalf * 2 + 54 : 0;
+    const extra = deferred.has(edge.key) ? maxHalf * 2 + 54 * sizeScale : 0;
     relItems.forEach((rel, index) => {
       const dh = halfDiag(rel);
-      const free = dist - (ring.get(edge.a) ?? 40) - (ring.get(edge.b) ?? 40) - 2 * dh;
-      const gap = Math.max(20, free / 2);
-      const fromA = (ring.get(edge.a) ?? 40) + dh + gap;
-      const parallelOffset = (index - mid) * (maxHalf * 2 + 16);
+      const free =
+        dist - (ring.get(edge.a) ?? 40 * sizeScale) - (ring.get(edge.b) ?? 40 * sizeScale) - 2 * dh;
+      const gap = Math.max(20 * sizeScale, free / 2);
+      const fromA = (ring.get(edge.a) ?? 40 * sizeScale) + dh + gap;
+      const parallelOffset = (index - mid) * (maxHalf * 2 + 16 * sizeScale);
       const deferredOffset = extra ? (edge.key.charCodeAt(0) % 2 === 0 ? extra : -extra) : 0;
       rel.x = pa.x + ux * fromA + px * (parallelOffset + deferredOffset);
       rel.y = pa.y + uy * fromA + py * (parallelOffset + deferredOffset);
@@ -829,7 +836,8 @@ function placeRelationshipNodes(
     if (!center) return;
     const sorted = loops.slice().sort((a, b) => a.id.localeCompare(b.id));
     const usedAngles = [...(neighborAngles.get(entityId) ?? [])];
-    const radius = (ring.get(entityId) ?? 60) + Math.max(...sorted.map(halfDiag)) + 54;
+    const radius =
+      (ring.get(entityId) ?? 60 * sizeScale) + Math.max(...sorted.map(halfDiag)) + 54 * sizeScale;
     sorted.forEach((rel) => {
       let bestAngle = -Math.PI / 2;
       let bestScore = -Infinity;
@@ -860,10 +868,10 @@ function placeRelationshipNodes(
     rel.y = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
   });
 
-  separateRelationshipOverlaps(nodes);
+  separateRelationshipOverlaps(nodes, sizeScale);
 }
 
-function separateRelationshipOverlaps(nodes: ERNodeModel[]): void {
+function separateRelationshipOverlaps(nodes: ERNodeModel[], sizeScale: number): void {
   const entities = nodes.filter((node) => node.nodeType === "entity");
   const rels = nodes.filter((node) => node.nodeType === "relationship");
   const entBox = entities.map((entity) => {
@@ -874,7 +882,7 @@ function separateRelationshipOverlaps(nodes: ERNodeModel[]): void {
     const s = measureNodeSize(rel);
     return { rel, hw: s.width / 2, hh: s.height / 2 };
   });
-  const margin = 3;
+  const margin = 3 * sizeScale;
   for (let iter = 0; iter < 200; iter++) {
     let moved = 0;
     for (let i = 0; i < relBox.length; i++) {
@@ -919,8 +927,15 @@ export function applySkeletonLayout(
   edges: EREdgeModel[],
   options: SkeletonLayoutOptions = {},
 ): SkeletonEmbedding {
+  const sizeScale = computeLayoutSizeScale(nodes);
   const skeleton = buildEntitySkeleton(nodes, edges);
   const embedding = computeSkeletonEmbedding(skeleton);
+  if (Math.abs(sizeScale - 1) > 1e-9) {
+    embedding.positions.forEach((position) => {
+      position.x *= sizeScale;
+      position.y *= sizeScale;
+    });
+  }
   const entityById = new Map(
     nodes.filter((n) => n.nodeType === "entity").map((node) => [node.id, node]),
   );
@@ -940,7 +955,8 @@ export function applySkeletonLayout(
       const entity = entityById.get(id)!;
       return [
         id,
-        options.ringOverride?.get(id) ?? ringRadiusFor(entity, attrsByEntity.get(id) ?? []),
+        options.ringOverride?.get(id) ??
+          ringRadiusFor(entity, attrsByEntity.get(id) ?? [], sizeScale),
       ] as const;
     }),
   );
@@ -948,7 +964,10 @@ export function applySkeletonLayout(
     skeleton.entityIds.map((id) => {
       const attrs = attrsByEntity.get(id) ?? [];
       const maxAttr = attrs.length ? Math.max(...attrs.map(maxHalfOf)) : 0;
-      return [id, (ring.get(id) ?? halfDiag(entityById.get(id)!)) + maxAttr + 6] as const;
+      return [
+        id,
+        (ring.get(id) ?? halfDiag(entityById.get(id)!)) + maxAttr + 6 * sizeScale,
+      ] as const;
     }),
   );
 
@@ -967,11 +986,14 @@ export function applySkeletonLayout(
         .map((id) => relById.get(id))
         .filter((rel): rel is ERNodeModel => Boolean(rel))
         .map(halfDiag),
-      36,
+      36 * sizeScale,
     );
     desired.set(
       edge.key,
-      (ring.get(edge.a) ?? 40) + (ring.get(edge.b) ?? 40) + 2 * maxRelHalf + 40,
+      (ring.get(edge.a) ?? 40 * sizeScale) +
+        (ring.get(edge.b) ?? 40 * sizeScale) +
+        2 * maxRelHalf +
+        40 * sizeScale,
     );
   });
 
@@ -989,7 +1011,7 @@ export function applySkeletonLayout(
       const entity = entityById.get(id)!;
       return { x: entity.x ?? 0, y: entity.y ?? 0 };
     });
-    const rad = ids.map((id) => footprint.get(id) ?? 60);
+    const rad = ids.map((id) => footprint.get(id) ?? 60 * sizeScale);
     const localEdges: [number, number][] = [];
     embedding.planarEdges.forEach((edge) => {
       if (!idx.has(edge.a) || !idx.has(edge.b)) return;
@@ -1006,7 +1028,7 @@ export function applySkeletonLayout(
         if (!idx.has(edge.a) || !idx.has(edge.b)) return;
         const ia = idx.get(edge.a)!;
         const ib = idx.get(edge.b)!;
-        const want = desired.get(edge.key) ?? 260;
+        const want = desired.get(edge.key) ?? 260 * sizeScale;
         d[ia][ib] = Math.min(d[ia][ib], want);
         d[ib][ia] = Math.min(d[ib][ia], want);
       });
@@ -1029,7 +1051,7 @@ export function applySkeletonLayout(
     let maxX = -Infinity;
     let maxY = -Infinity;
     ids.forEach((id, index) => {
-      const r = footprint.get(id) ?? 60;
+      const r = footprint.get(id) ?? 60 * sizeScale;
       minX = Math.min(minX, localPos[index].x - r);
       maxX = Math.max(maxX, localPos[index].x + r);
       minY = Math.min(minY, localPos[index].y - r);
@@ -1043,7 +1065,7 @@ export function applySkeletonLayout(
   });
 
   laid.sort((a, b) => b.w * b.h - a.w * a.h);
-  const pad = 80;
+  const pad = 80 * sizeScale;
   const maxWidth = options.canvasWidth ?? 1200;
   let cursorX = 0;
   let cursorY = 0;
@@ -1065,7 +1087,7 @@ export function applySkeletonLayout(
     rowHeight = Math.max(rowHeight, component.h);
   });
 
-  placeRelationshipNodes(nodes, skeleton, embedding, ring);
+  placeRelationshipNodes(nodes, skeleton, embedding, ring, sizeScale);
   return embedding;
 }
 

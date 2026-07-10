@@ -20,8 +20,10 @@
 import {
   buildAttributeData,
   estimateAttributeHalfSize,
+  measureNodeSize,
   patchRelationshipLinkPoints,
 } from "./builder";
+import { computeLayoutSizeScale } from "./graph/sizeAwareGeometry";
 import type { ChenModelData, ERNodeModel, GraphLike, ParsedTable } from "./types";
 
 interface LayoutNodeRecord {
@@ -49,8 +51,6 @@ type AttrNode = ERNodeModel & {
 };
 
 const TAU = Math.PI * 2;
-const EDGE_PADDING = 18; // 节点之间的安全间距
-const MAX_R_EXTRA = 220; // 距离实体中心的硬上限（扣除实体半径外）
 
 // ---------- 几何工具 ----------
 
@@ -194,9 +194,12 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
     byEntity.get(pid).push(n);
   });
 
-  const existing: LayoutNodeRecord[] = graph.getNodes().map((n) => {
+  const graphNodes = graph.getNodes();
+  const measuredSizes = new Map<string, { width: number; height: number }>();
+  const existing: LayoutNodeRecord[] = graphNodes.map((n) => {
     const m = n.getModel();
     const bbox = n.getBBox();
+    measuredSizes.set(m.id, { width: bbox.width, height: bbox.height });
     return {
       id: m.id,
       x: m.x || 0,
@@ -206,6 +209,12 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
       nodeType: m.nodeType,
     };
   });
+  const sizeScale = computeLayoutSizeScale(
+    [...graphNodes.map((node) => node.getModel()), ...newAttrNodes],
+    (node) => measuredSizes.get(node.id) ?? measureNodeSize(node),
+  );
+  const edgePadding = 18 * sizeScale;
+  const maxRadiusExtra = 220 * sizeScale;
   const entityMap = new Map<string, LayoutNodeRecord>(
     existing.filter((n) => n.nodeType === "entity").map((n) => [n.id, n]),
   );
@@ -303,9 +312,9 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
         const dy = Math.sin(angle);
         const entExtent = Math.abs(dx) * ent.halfW + Math.abs(dy) * ent.halfH;
         const attrExtent = Math.abs(dx) * attrHW + Math.abs(dy) * attrHH;
-        const minR = entExtent + attrExtent + EDGE_PADDING;
-        const maxR = maxROverride !== undefined ? maxROverride : entExtent + MAX_R_EXTRA;
-        const STEP = 4;
+        const minR = entExtent + attrExtent + edgePadding;
+        const maxR = maxROverride !== undefined ? maxROverride : entExtent + maxRadiusExtra;
+        const STEP = 4 * sizeScale;
 
         for (let R = minR; R <= maxR; R += STEP) {
           const px = ent.x + R * dx;
@@ -325,7 +334,7 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
             for (let k = 0; k < existing.length; k++) {
               const n = existing[k];
               if (n.id === entityId) continue;
-              if (rectsOverlap(px, py, attrHW, attrHH, n, 6)) {
+              if (rectsOverlap(px, py, attrHW, attrHH, n, 6 * sizeScale)) {
                 bad = true;
                 break;
               }
@@ -337,7 +346,18 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
             for (let k = 0; k < existing.length; k++) {
               const n = existing[k];
               if (n.id === entityId) continue;
-              if (segmentHitsRect(nex1, ney1, nex2, ney2, n.x, n.y, n.halfW + 3, n.halfH + 3)) {
+              if (
+                segmentHitsRect(
+                  nex1,
+                  ney1,
+                  nex2,
+                  ney2,
+                  n.x,
+                  n.y,
+                  n.halfW + 3 * sizeScale,
+                  n.halfH + 3 * sizeScale,
+                )
+              ) {
                 bad = true;
                 break;
               }
@@ -431,7 +451,7 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
         rectPierce: false,
       };
 
-      const DEV_PENALTY = 75; // 每弧度的偏离惩罚
+      const DEV_PENALTY = 75 * sizeScale; // 每弧度的偏离惩罚
       const findBestInCandidates = (deltas, flags) => {
         let local = null;
         for (const d of deltas) {
@@ -455,7 +475,7 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
 
       // 最后兜底：全部放宽仍没位置时，允许更大半径，只保证不与节点矩形重叠
       if (!best) {
-        const hardCap = Math.max(ent.halfW, ent.halfH) + MAX_R_EXTRA + 160;
+        const hardCap = Math.max(ent.halfW, ent.halfH) + maxRadiusExtra + 160 * sizeScale;
         best = tryAngleWithFlags(baseAngle, ONLY_NODES, hardCap);
       }
       if (!best) {
@@ -465,7 +485,7 @@ export const computeAttributePositions = (graph: GraphLike, newAttrNodes: AttrNo
         const attrExtent = Math.abs(dx) * attrHW + Math.abs(dy) * attrHH;
         best = {
           angle: baseAngle,
-          R: entExtent + attrExtent + EDGE_PADDING,
+          R: entExtent + attrExtent + edgePadding,
           dx,
           dy,
         };

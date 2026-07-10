@@ -7,6 +7,7 @@
  */
 
 import { animateNodesToTargets, smoothFitView } from "./animation";
+import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
 import type { GraphLike, GraphNodeLike } from "../types";
 
 // ---- Spatial grid helpers (near-linear neighbor queries) ----
@@ -60,6 +61,18 @@ export const arrangeLayout = (graph: GraphLike) => {
 
   const nodes = graph.getNodes();
   if (!nodes.length) return;
+
+  const measuredSizes = new Map(
+    nodes.map((node) => {
+      const bbox = node.getBBox();
+      return [node.getModel().id, { width: bbox.width, height: bbox.height }] as const;
+    }),
+  );
+  const sizeScale = computeLayoutSizeScale(
+    nodes.map((node) => node.getModel()),
+    (node) => measuredSizes.get(node.id)!,
+  );
+  const gap = (pixels: number): number => pixels * sizeScale;
 
   const targets = new Map<string, { x: number; y: number }>();
   const nodeMap = new Map<string, GraphNodeLike>();
@@ -233,7 +246,7 @@ export const arrangeLayout = (graph: GraphLike) => {
     const usableAngle = Math.max(2 * Math.PI - binRelCount * eg, Math.PI / 2);
     const sumExtents = orbitalSatellites.reduce((sum, s) => {
       const sb = s.node.getBBox();
-      return sum + Math.max(sb.width, sb.height) + 8;
+      return sum + Math.max(sb.width, sb.height) + gap(8);
     }, 0);
     let tangentialFloor = 0;
     if (orbitalCount > 0) {
@@ -252,14 +265,16 @@ export const arrangeLayout = (graph: GraphLike) => {
     // baseRing：变量轨道下沿轴向 (θ=0 或 π/2) 的最大半径。
     // 也作为其它模块（relAnchors 等）的 fallback 单值。
     let ringR =
-      orbitalCount > 0 ? Math.max(ehx + ohx + 8, ehy + ohy + 8, tangentialFloor) : entityRadius;
+      orbitalCount > 0
+        ? Math.max(ehx + ohx + gap(8), ehy + ohy + gap(8), tangentialFloor)
+        : entityRadius;
 
     baseRing.set(id, ringR);
     systemRadius.set(id, ringR + maxSatelliteRadius);
   });
 
-  const clearanceGap = 12;
-  const minEntityRelationGap = 28;
+  const clearanceGap = gap(12);
+  const minEntityRelationGap = gap(28);
 
   // 在变量轨道下计算指定角度处的实际属性中心距实体中心的距离。
   // r_geom(θ) = rect_boundary + ellipse_boundary + 8，再受 tangentialFloor 限制。
@@ -274,7 +289,7 @@ export const arrangeLayout = (graph: GraphLike) => {
   ) => {
     const eOut = rectBoundary(ehx, ehy, cosT, sinT);
     const oIn = ellipseBoundary(ohx, ohy, cosT, sinT);
-    return Math.max(eOut + oIn + 8, floor);
+    return Math.max(eOut + oIn + gap(8), floor);
   };
 
   // 计算实体在 BA 方向上"最近属性的角度"。
@@ -419,7 +434,7 @@ export const arrangeLayout = (graph: GraphLike) => {
       sinB,
       tangentialFloors.get(idB) ?? 0,
     );
-    const blockR = msA + msB + 8;
+    const blockR = msA + msB + gap(8);
     const alongA = cosA * rA;
     const alongB = cosB * rB;
     const perpDiff = sinA * rA - sinB * rB;
@@ -472,12 +487,12 @@ export const arrangeLayout = (graph: GraphLike) => {
 
   // 全局斥力的最小间距（仅作用于未连通的实体对）。连通对由 pairDesired
   // 双向弹簧处理；这里只防止毫无关联的实体彼此重叠。
-  const safeGap = 35;
+  const safeGap = gap(35);
   const entityIds = Array.from(entityPositions.keys());
   const maxSysR = entityIds.length
     ? Math.max(...entityIds.map((id) => systemRadius.get(id) || 60))
     : 80;
-  const entityCellSize = Math.max(120, maxSysR * 2 + safeGap);
+  const entityCellSize = Math.max(gap(120), maxSysR * 2 + safeGap);
 
   for (let iter = 0; iter < 300; iter++) {
     let maxMove = 0;
@@ -506,10 +521,10 @@ export const arrangeLayout = (graph: GraphLike) => {
       const upperLimit = desired * deadbandRatio;
       let target: number;
       let factor: number;
-      if (dist < desired - 1) {
+      if (dist < desired - gap(1)) {
         target = desired;
         factor = 0.2;
-      } else if (dist > upperLimit + 1) {
+      } else if (dist > upperLimit + gap(1)) {
         target = upperLimit;
         factor = 0.05;
       } else {
@@ -607,7 +622,7 @@ export const arrangeLayout = (graph: GraphLike) => {
           // 增大为 sqrt(d^2+arc^2)，反复点击布局时不断把节点向外推。
           // 旋转保持到中心实体的距离不变，使该力幂等。
           let arc = shortfall * Math.min(di, dj) * 0.02;
-          if (arc > 2.5) arc = 2.5; // 硬上限：防止单步过冲
+          if (arc > gap(2.5)) arc = gap(2.5); // 硬上限：防止单步过冲
           const dai = (arc / di) * -sign;
           const daj = (arc / dj) * sign;
           const cosI = Math.cos(dai),
@@ -855,7 +870,7 @@ export const arrangeLayout = (graph: GraphLike) => {
 
         const eOut = rectBoundary(ehx, ehy, cosA, sinA);
         const sIn = ellipseBoundary(shx, shy, cosA, sinA);
-        const r = Math.max(eOut + sIn + 8, floor);
+        const r = Math.max(eOut + sIn + gap(8), floor);
 
         const targetX = center.x + r * cosA;
         const targetY = center.y + r * sinA;
@@ -926,7 +941,7 @@ export const arrangeLayout = (graph: GraphLike) => {
     const baseX = targets.get(sample.relNode.getModel().id)?.x || (posA.x + posB.x) / 2;
     const baseY = targets.get(sample.relNode.getModel().id)?.y || (posA.y + posB.y) / 2;
     const maxRadius = Math.max(...list.map((item) => item.relRadius));
-    const offsetStep = maxRadius * 2 + 16;
+    const offsetStep = maxRadius * 2 + gap(16);
 
     const sorted = list
       .slice()
@@ -959,7 +974,7 @@ export const arrangeLayout = (graph: GraphLike) => {
     const maxRelR = relIdArr.length
       ? Math.max(...relIdArr.map((id) => relRadii.get(id) || 30))
       : 30;
-    const relCellSize = Math.max(60, maxRelR * 2 + 14);
+    const relCellSize = Math.max(gap(60), maxRelR * 2 + gap(14));
 
     for (let iter = 0; iter < 80; iter++) {
       let moved = 0;
@@ -979,7 +994,7 @@ export const arrangeLayout = (graph: GraphLike) => {
           const dy = b.pos.y - a.pos.y;
           let dist = Math.hypot(dx, dy);
           if (dist === 0) dist = 0.01;
-          const minDist = a.r + b.r + 14;
+          const minDist = a.r + b.r + gap(14);
           if (dist < minDist) {
             const push = (minDist - dist) / 2;
             const nx = dx / dist;
@@ -1060,7 +1075,7 @@ export const arrangeLayout = (graph: GraphLike) => {
     });
 
     const maxR = metaArr.length ? Math.max(...metaArr.map((m) => m.r)) : 30;
-    const cellSize = Math.max(40, maxR * 2 + 8);
+    const cellSize = Math.max(gap(40), maxR * 2 + gap(8));
 
     for (let iter = 0; iter < 400; iter++) {
       let maxMove = 0;
@@ -1080,7 +1095,7 @@ export const arrangeLayout = (graph: GraphLike) => {
           const dy = b.pos.y - a.pos.y;
           let dist = Math.hypot(dx, dy);
           if (dist === 0) dist = 0.01;
-          const minDist = a.r + b.r + 8;
+          const minDist = a.r + b.r + gap(8);
           if (dist < minDist) {
             const overlap = minDist - dist;
             const aLocked = lockedCoreIds.has(a.id);

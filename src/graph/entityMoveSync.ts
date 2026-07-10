@@ -1,4 +1,5 @@
 import type { EREdgeModel, ERNodeModel } from "../types";
+import { computeLayoutSizeScale } from "./sizeAwareGeometry";
 
 export interface Point {
   x: number;
@@ -25,8 +26,6 @@ const DEFAULT_SIZES: Record<string, NodeSize> = {
 };
 
 const FALLBACK_SIZE: NodeSize = { width: 80, height: 40 };
-const MIN_ENTITY_RELATION_GAP = 28;
-const ATTRIBUTE_DIAMOND_GAP = 8;
 const TAU = Math.PI * 2;
 
 const positionOf = (node: ERNodeModel): Point => ({
@@ -174,6 +173,7 @@ function computeRelationshipAnchor(
   entityB: ERNodeModel,
   relationship: ERNodeModel,
   sizeOf?: NodeSizeResolver,
+  sizeScale = 1,
 ): Point {
   const a = positionOf(entityA);
   const b = positionOf(entityB);
@@ -191,9 +191,10 @@ function computeRelationshipAnchor(
   const relTowardA = diamondBoundary(sizeR.width / 2, sizeR.height / 2, -ux, -uy);
   const relTowardB = diamondBoundary(sizeR.width / 2, sizeR.height / 2, ux, uy);
   const free = dist - aBoundary - relTowardA - bBoundary - relTowardB;
-  const equalGap = Math.max(MIN_ENTITY_RELATION_GAP, free / 2);
-  const minFromA = aBoundary + relTowardA + MIN_ENTITY_RELATION_GAP;
-  const maxFromA = dist - bBoundary - relTowardB - MIN_ENTITY_RELATION_GAP;
+  const minGap = 28 * sizeScale;
+  const equalGap = Math.max(minGap, free / 2);
+  const minFromA = aBoundary + relTowardA + minGap;
+  const maxFromA = dist - bBoundary - relTowardB - minGap;
   const idealFromA = aBoundary + relTowardA + equalGap;
   const fromA = maxFromA > minFromA ? Math.min(Math.max(idealFromA, minFromA), maxFromA) : dist / 2;
 
@@ -210,6 +211,7 @@ export function computeMovedEntityRelationshipTargets(
   sizeOf?: NodeSizeResolver,
   startPositions?: NodeStartPositions,
 ): RelationshipSyncResult {
+  const sizeScale = computeLayoutSizeScale(nodes, sizeOf);
   const movedIds = new Set(movedEntityIds);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const relationshipTargets = new Map<string, Point>();
@@ -240,7 +242,7 @@ export function computeMovedEntityRelationshipTargets(
       if (!entityA || !entityB) return;
       relationshipTargets.set(
         relationship.id,
-        computeRelationshipAnchor(entityA, entityB, relationship, sizeOf),
+        computeRelationshipAnchor(entityA, entityB, relationship, sizeOf, sizeScale),
       );
       affectedEntityIds.add(entityA.id);
       affectedEntityIds.add(entityB.id);
@@ -267,6 +269,7 @@ export function computeAttributeRotationTargets(
   entityIds: Iterable<string>,
   sizeOf?: NodeSizeResolver,
 ): Map<string, Point> {
+  const sizeScale = computeLayoutSizeScale(nodes, sizeOf);
   const targets = new Map<string, Point>();
   const entityIdSet = new Set(entityIds);
   if (!entityIdSet.size) return targets;
@@ -367,7 +370,7 @@ export function computeAttributeRotationTargets(
     let hard = 0;
     let soft = 0;
     relationshipObstacles.forEach((obstacle) => {
-      const gap = relatedRelationshipIds.has(obstacle.node.id) ? ATTRIBUTE_DIAMOND_GAP : 2;
+      const gap = relatedRelationshipIds.has(obstacle.node.id) ? 8 * sizeScale : 2 * sizeScale;
       if (boxesOverlap(point, attrSize, obstacle.pos, obstacle.size, gap)) hard++;
     });
     relationshipLineObstacles.forEach((obstacle) => {
@@ -378,7 +381,7 @@ export function computeAttributeRotationTargets(
       if (obstacle.node.id === attr.id) return;
       const target = targets.get(obstacle.node.id);
       const obstaclePos = target ?? obstacle.pos;
-      if (boxesOverlap(point, attrSize, obstaclePos, obstacle.size, 4)) soft++;
+      if (boxesOverlap(point, attrSize, obstaclePos, obstacle.size, 4 * sizeScale)) soft++;
     });
     return { hard, soft };
   };

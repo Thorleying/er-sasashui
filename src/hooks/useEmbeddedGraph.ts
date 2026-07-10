@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { measureNodeSize, patchRelationshipLinkPoints } from "../builder";
 import { setupNodeDoubleClickEdit } from "../editor";
 import { createManager as createHistoryManager, type HistoryManager } from "../history";
-import { animateNodesToTargets, smoothFitView } from "../layout";
+import { animateNodesToTargets, cancelNodeAnimation, smoothFitView } from "../layout";
 import { createERGraph } from "../graph/createERGraph";
 import { attachEntityDragSync, type DragChangeMeta } from "../graph/attachEntityDragSync";
 import { attachForceLoop, type ForceLoopController } from "../graph/forceLoop";
-import { updateGraphStyles } from "../graph/updateGraphStyles";
+import { applyFontScaleToModels, updateGraphStyles } from "../graph/updateGraphStyles";
+import { applySizeChangeToGraph, captureGraphGeometry } from "../graph/sizeAwareGeometry";
 import { computeAutoAvoidTargets } from "../graph/autoAvoid";
 import * as AttributeLayout from "../attributeLayout";
 import type { EmbeddedGraphState, EREdgeModel, ERNodeModel, GraphLike } from "../types";
@@ -115,7 +116,6 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
   const forceCtrlRef = useRef<ForceLoopController | null>(null);
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
-  const fontScaleAutoAvoidTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorShowFrameRef = useRef<number | null>(null);
   const attributeSnapshotRef = useRef<AttributeSnapshot>(
     snapshotAttributes(normalizedRef.current.nodes, normalizedRef.current.edges),
@@ -174,24 +174,6 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
     [graphNodeSize],
   );
 
-  const cancelScheduledFontScaleAutoAvoid = useCallback(() => {
-    if (fontScaleAutoAvoidTimerRef.current === null) return;
-    clearTimeout(fontScaleAutoAvoidTimerRef.current);
-    fontScaleAutoAvoidTimerRef.current = null;
-  }, []);
-
-  const scheduleFontScaleAutoAvoid = useCallback(
-    (delayMs = 180) => {
-      if (!autoAvoidRef.current) return;
-      cancelScheduledFontScaleAutoAvoid();
-      fontScaleAutoAvoidTimerRef.current = setTimeout(() => {
-        fontScaleAutoAvoidTimerRef.current = null;
-        applyGraphAutoAvoid(220);
-      }, delayMs);
-    },
-    [applyGraphAutoAvoid, cancelScheduledFontScaleAutoAvoid],
-  );
-
   const cancelErrorShowFrame = useCallback(() => {
     if (errorShowFrameRef.current === null) return;
     cancelAnimationFrame(errorShowFrameRef.current);
@@ -226,7 +208,6 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
     (meta?: DragChangeMeta) => {
       const graph = graphRef.current;
       if (!graph || graph.destroyed) return;
-      cancelScheduledFontScaleAutoAvoid();
       if (autoAvoidRef.current && !meta?.autoAvoidMerged) {
         applyGraphAutoAvoid(300);
         return;
@@ -234,7 +215,7 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
       patchRelationshipLinkPoints(graph);
       graph.refresh?.();
     },
-    [applyGraphAutoAvoid, cancelScheduledFontScaleAutoAvoid],
+    [applyGraphAutoAvoid],
   );
 
   useEffect(() => {
@@ -243,19 +224,20 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
 
     const state = normalizeState(initialState);
     normalizedRef.current = state;
-    cancelScheduledFontScaleAutoAvoid();
     const nextSettings = state.settings ?? {};
+    const initialFontScale = clampFontScale(Number(nextSettings.fontScale ?? 1));
     autoAvoidRef.current = false;
     forceOnRef.current = false;
     setIsColoredState(nextSettings.colored !== false);
     setHideFieldsState(nextSettings.hideAttrs === true);
-    setFontScaleState(clampFontScale(Number(nextSettings.fontScale ?? 1)));
+    setFontScaleState(initialFontScale);
     setForceOnState(false);
     setAutoAvoidState(false);
     setError(null);
 
     const nodes = clone(state.nodes);
     const edges = clone(state.edges);
+    applyFontScaleToModels(nodes, edges, initialFontScale);
     attributeSnapshotRef.current = snapshotAttributes(nodes, edges);
     const graph = createERGraph({ container, data: { nodes, edges } }) as RenderableGraph;
     graphRef.current = graph;
@@ -265,11 +247,7 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
 
     graph.data({ nodes, edges });
     graph.render();
-    updateGraphStyles(
-      graph,
-      nextSettings.colored !== false,
-      clampFontScale(Number(nextSettings.fontScale ?? 1)),
-    );
+    updateGraphStyles(graph, nextSettings.colored !== false, initialFontScale);
     if (nextSettings.hideAttrs === true) {
       AttributeLayout.hideAttributes(graph as MutableRenderableGraph);
     }
@@ -304,7 +282,6 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
     }, 120);
 
     return () => {
-      cancelScheduledFontScaleAutoAvoid();
       cancelErrorShowFrame();
       forceCtrlRef.current?.destroy();
       forceCtrlRef.current = null;
@@ -396,6 +373,15 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
       return;
     }
 
+    attrNodes.forEach((node) => {
+      node.labelCfg = {
+        ...node.labelCfg,
+        style: {
+          ...(node.labelCfg?.style ?? {}),
+          fontSize: 15 * fontScale,
+        },
+      };
+    });
     AttributeLayout.computeAttributePositions(
       graph,
       attrNodes as Parameters<typeof AttributeLayout.computeAttributePositions>[1],
@@ -421,13 +407,16 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
 
   const setFontScale = (next: number) => {
     const safeNext = clampFontScale(next);
+    disableForceIfOn();
     setFontScaleState(safeNext);
     const graph = graphRef.current;
     if (!graph || graph.destroyed) return;
+    cancelNodeAnimation(graph);
+    const before = captureGraphGeometry(graph);
     updateGraphStyles(graph, isColored, safeNext);
+    applySizeChangeToGraph(graph, before);
     patchRelationshipLinkPoints(graph);
     graph.refresh?.();
-    scheduleFontScaleAutoAvoid();
   };
 
   const setForceOn = (next: boolean) => {
@@ -447,7 +436,6 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
     setAutoAvoidState(next);
     const graph = graphRef.current;
     if (!next) {
-      cancelScheduledFontScaleAutoAvoid();
       return;
     }
     if (!graph || graph.destroyed) return;

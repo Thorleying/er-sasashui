@@ -196,4 +196,43 @@ describe("buildDrawioXML", () => {
     );
     expect(xml).toContain("dashed=1");
   });
+
+  it("exports the current scaled node and edge font sizes", () => {
+    const xml = buildDrawioXML(
+      buildGraph(
+        [
+          buildNode(
+            {
+              id: "e",
+              label: "E",
+              nodeType: "entity",
+              labelCfg: { style: { fontSize: 9 } },
+            },
+            { minX: 0, minY: 0, width: 40, height: 25 },
+          ),
+          buildNode(
+            {
+              id: "a",
+              label: "A",
+              nodeType: "attribute",
+              labelCfg: { style: { fontSize: 7.5 } },
+            },
+            { minX: 80, minY: 0, width: 30, height: 20 },
+          ),
+        ],
+        [
+          buildEdge({
+            source: "e",
+            target: "a",
+            label: "1",
+            labelCfg: { style: { fontSize: 6 } },
+          }),
+        ],
+      ),
+    );
+
+    expect(xml).toMatch(/value="E"[^/]*fontSize=9;/);
+    expect(xml).toMatch(/value="A"[^/]*fontSize=7\.5;/);
+    expect(xml).toMatch(/value="1"[^/]*fontSize=6;[^/]*edge="1"/);
+  });
 });

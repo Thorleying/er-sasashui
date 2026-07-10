@@ -5,6 +5,8 @@
  */
 
 import { animateNodesToTargets } from "./animation";
+import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
+import type { ERNodeModel } from "../types";
 
     /**
      * 将互不相连的组件分散到中心周围
@@ -21,6 +23,20 @@ import { animateNodesToTargets } from "./animation";
             if (onFinish) onFinish();
             return;
         }
+
+        const sizeById = new Map<string, { width: number; height: number }>(
+            nodes.map((node) => {
+                const bbox = node.getBBox();
+                return [
+                    node.getModel().id,
+                    { width: bbox.width, height: bbox.height },
+                ] as const;
+            }),
+        );
+        const sizeScale = computeLayoutSizeScale(
+            nodes.map((node) => node.getModel() as ERNodeModel),
+            (node) => sizeById.get(node.id)!,
+        );
 
         const adj = new Map<string, Set<string>>();
         graph.getEdges().forEach(edge => {
@@ -81,9 +97,11 @@ import { animateNodesToTargets } from "./animation";
                 cx += bbox.centerX;
                 cy += bbox.centerY;
             });
-            const width = Math.max(40, maxX - minX);
-            const height = Math.max(40, maxY - minY);
-            const radius = Math.sqrt(width * width + height * height) / 2 + 40;
+            const width = Math.max(40 * sizeScale, maxX - minX);
+            const height = Math.max(40 * sizeScale, maxY - minY);
+            const radius =
+                Math.sqrt(width * width + height * height) / 2 +
+                40 * sizeScale;
             const center = {
                 x: cx / comp.length,
                 y: cy / comp.length
@@ -91,15 +109,15 @@ import { animateNodesToTargets } from "./animation";
             return { comp, radius, center };
         });
 
-        const gap = 50;
+        const gap = 50 * sizeScale;
         const totalSpan = compMeta.reduce((sum, c) => sum + c.radius * 2 + gap, 0);
         const orbitRadius = Math.min(
             Math.max(
                 totalSpan / (2 * Math.PI),
-                Math.max(...compMeta.map(c => c.radius)) + gap + 40,
-                240
+                Math.max(...compMeta.map(c => c.radius)) + gap + 40 * sizeScale,
+                240 * sizeScale
             ),
-            520
+            520 * sizeScale
         );
 
         let angleCursor = -Math.PI / 2;

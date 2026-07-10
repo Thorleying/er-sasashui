@@ -1,4 +1,5 @@
 import { measureNodeSize } from "../builder";
+import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
 import type { EREdgeModel, ERNodeModel } from "../types";
 
 const TAU = Math.PI * 2;
@@ -17,6 +18,7 @@ export interface AttributeRingState {
 // moderate: a single uniform ring per entity. This is the shared implementation
 // used by the headless CLI and by the Web quick layout after skeleton stress.
 export function placeAttributesModerate(state: AttributeRingState): void {
+  const sizeScale = computeLayoutSizeScale(state.nodes);
   const entById = new Map(state.nodes.filter((n) => n.nodeType === "entity").map((e) => [e.id, e]));
   const relById = new Map(
     state.nodes.filter((n) => n.nodeType === "relationship").map((r) => [r.id, r]),
@@ -70,8 +72,8 @@ export function placeAttributesModerate(state: AttributeRingState): void {
     obstacles.some(
       (o) =>
         o.id !== skipId &&
-        Math.abs(x - o.x) < (w + o.w) / 2 - 2 &&
-        Math.abs(y - o.y) < (h + o.h) / 2 - 2,
+        Math.abs(x - o.x) < (w + o.w) / 2 - 2 * sizeScale &&
+        Math.abs(y - o.y) < (h + o.h) / 2 - 2 * sizeScale,
     );
 
   const centre = new Map<string, { x: number; y: number }>();
@@ -154,7 +156,7 @@ export function placeAttributesModerate(state: AttributeRingState): void {
     const ecy = ent.y ?? 0;
     const entR = radiusOf(ent);
     const rels = relAngles.get(eid) ?? [];
-    const gap = 8;
+    const gap = 8 * sizeScale;
 
     const items = attrs.map((at) => {
       const s = measureNodeSize(at);
@@ -287,8 +289,8 @@ export function placeAttributesModerate(state: AttributeRingState): void {
       if (!best || d < best.d) best = { x, y, d };
     };
 
-    const localStep = Math.max(6, Math.min(12, half / 4));
-    const localMax = Math.max(220, half * 8);
+    const localStep = Math.max(6 * sizeScale, Math.min(12 * sizeScale, half / 4));
+    const localMax = Math.max(220 * sizeScale, half * 8);
     for (let r = localStep; r <= localMax; r += localStep) {
       const steps = Math.max(24, Math.ceil((TAU * r) / localStep));
       for (let k = 0; k < steps; k++) {
@@ -299,8 +301,8 @@ export function placeAttributesModerate(state: AttributeRingState): void {
     }
 
     for (let dr = 0; dr <= 8; dr++) {
-      const r2 = curR + dr * (half * 0.6 + 6);
-      const steps = Math.max(36, Math.round((TAU * r2) / (half + 6)));
+      const r2 = curR + dr * (half * 0.6 + 6 * sizeScale);
+      const steps = Math.max(36, Math.round((TAU * r2) / (half + 6 * sizeScale)));
       for (let k = 0; k < steps; k++) {
         const ang = curAng + (k / steps) * TAU;
         const x = ecx + r2 * Math.cos(ang);

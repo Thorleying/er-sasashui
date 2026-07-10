@@ -385,6 +385,7 @@ interface DrawioStyleSource {
     labelCfg?: {
         style?: {
             fill?: string;
+            fontSize?: number;
             fontWeight?: string | number;
             fontStyle?: string;
         };
@@ -407,6 +408,17 @@ function buildVertexStyle(model: DrawioStyleSource): string {
 
     // fontStyle 是 bitmask：1=bold, 2=italic, 4=underline
     const lblStyle = (model.labelCfg && model.labelCfg.style) || {};
+    const fallbackFontSize =
+        model.nodeType === "entity"
+            ? 18
+            : model.nodeType === "relationship"
+              ? 16
+              : 15;
+    const parsedFontSize = Number(lblStyle.fontSize);
+    const fontSize =
+        Number.isFinite(parsedFontSize) && parsedFontSize > 0
+            ? parsedFontSize
+            : fallbackFontSize;
     let fontStyle = 0;
     if (
         lblStyle.fontWeight === "bold" ||
@@ -417,15 +429,15 @@ function buildVertexStyle(model: DrawioStyleSource): string {
     if (lblStyle.fontStyle === "italic") fontStyle |= 2;
 
     if (model.nodeType === "entity") {
-        return `rounded=0;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=16;fontStyle=${fontStyle || 1};fontColor=${labelFontColor};${dashed}`;
+        return `rounded=0;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=${fontSize};fontStyle=${fontStyle || 1};fontColor=${labelFontColor};${dashed}`;
     }
     if (model.nodeType === "attribute") {
         // 主键：加下划线（bit 4），且通常加粗
         if (model.keyType === "pk") fontStyle |= 4 | 1;
-        return `ellipse;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=13;fontStyle=${fontStyle};fontColor=${labelFontColor};${dashed}`;
+        return `ellipse;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=${fontSize};fontStyle=${fontStyle};fontColor=${labelFontColor};${dashed}`;
     }
     if (model.nodeType === "relationship") {
-        return `rhombus;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=14;fontStyle=${fontStyle};fontColor=${labelFontColor};${dashed}`;
+        return `rhombus;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=${fontSize};fontStyle=${fontStyle};fontColor=${labelFontColor};${dashed}`;
     }
     return `rounded=0;whiteSpace=wrap;html=1;fillColor=${fill};strokeColor=${stroke};strokeWidth=${strokeWidth};`;
 }
@@ -435,7 +447,12 @@ function buildEdgeStyle(model: DrawioStyleSource): string {
     const stroke = s.stroke || "#000000";
     const strokeWidth = s.lineWidth || 1;
     // endArrow=none：Chen 模型里 entity-attribute、entity-relationship 都是无向线
-    return `endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=12;`;
+    const parsedFontSize = Number(model.labelCfg?.style?.fontSize);
+    const fontSize =
+        Number.isFinite(parsedFontSize) && parsedFontSize > 0
+            ? parsedFontSize
+            : 12;
+    return `endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=${fontSize};`;
 }
 
 // 生成一个 drawio diagram id（短、仅字母数字下划线，drawio 对 id 没有严格校验但保守一些）

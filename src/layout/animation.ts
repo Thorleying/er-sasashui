@@ -18,6 +18,13 @@ const nextToken = (tokens: WeakMap<GraphLike, number>, graph: GraphLike) => {
 const isCurrentToken = (tokens: WeakMap<GraphLike, number>, graph: GraphLike, token: number) =>
   tokens.get(graph) === token;
 
+/** Stop any in-flight node-position animation without starting a replacement layout. */
+export const cancelNodeAnimation = (graph: GraphLike | null | undefined): void => {
+  if (!graph || graph.destroyed) return;
+  nextToken(nodeAnimationTokens, graph);
+  graph.setAutoPaint(true);
+};
+
 const clampAnimationProgress = (currentTime: number, startTime: number, duration: number) => {
   if (duration <= 0) return 1;
   return Math.max(0, Math.min((currentTime - startTime) / duration, 1));
@@ -37,7 +44,7 @@ export const smoothFitView = (graph: GraphLike, duration = 800, easing = "easeOu
   try {
     const nodes = graph.getNodes();
     if (!nodes || nodes.length === 0) {
-      graph.fitView(20);
+      graph.fitView?.(20);
       return;
     }
 
@@ -59,18 +66,40 @@ export const smoothFitView = (graph: GraphLike, duration = 800, easing = "easeOu
     const contentCenterX = (minX + maxX) / 2;
     const contentCenterY = (minY + maxY) / 2;
 
-    if (contentWidth === 0 || contentHeight === 0) {
-      graph.fitView(20);
+    if (
+      !Number.isFinite(contentWidth) ||
+      !Number.isFinite(contentHeight) ||
+      contentWidth <= 0 ||
+      contentHeight <= 0
+    ) {
+      graph.fitView?.(20);
       return;
     }
 
-    const graphWidth = graph.get("width");
-    const graphHeight = graph.get("height");
+    const graphWidth = Number(graph.get("width"));
+    const graphHeight = Number(graph.get("height"));
     const padding = 40;
+
+    if (
+      !Number.isFinite(graphWidth) ||
+      !Number.isFinite(graphHeight) ||
+      graphWidth <= padding * 2 ||
+      graphHeight <= padding * 2
+    ) {
+      graph.fitView?.(20);
+      return;
+    }
 
     const scaleX = (graphWidth - padding * 2) / contentWidth;
     const scaleY = (graphHeight - padding * 2) / contentHeight;
+    // The content bounds already include all font-driven geometry and spacing
+    // changes. Fitting those live bounds fills the viewport without applying
+    // the font ratio a second time.
     const targetZoom = Math.min(scaleX, scaleY);
+    if (!Number.isFinite(targetZoom) || targetZoom <= 0) {
+      graph.fitView?.(20);
+      return;
+    }
 
     const targetCenterX = graphWidth / 2 - contentCenterX * targetZoom;
     const targetCenterY = graphHeight / 2 - contentCenterY * targetZoom;
@@ -109,7 +138,7 @@ export const smoothFitView = (graph: GraphLike, duration = 800, easing = "easeOu
     requestAnimationFrame(animate);
   } catch (error) {
     console.warn("Smooth fit view failed, falling back to instant fit:", error);
-    graph.fitView(20);
+    graph.fitView?.(20);
   }
 };
 

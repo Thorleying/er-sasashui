@@ -20,6 +20,12 @@ import {
 import { computeAttributePositions } from "@app/attributeLayout";
 import { updateGraphStyles } from "@app/graph/updateGraphStyles";
 import {
+  applyLayoutSizeScaleToEdges,
+  applySizeChangeToModels,
+  captureModelGeometry,
+  computeLayoutSizeScale,
+} from "@app/graph/sizeAwareGeometry";
+import {
   applyNodePositionTargets,
   computeAttributeRotationTargets,
   computeMovedEntityRelationshipTargets,
@@ -155,6 +161,7 @@ export function generate(opts: GenerateOptions): GenerateResult {
     settings.hideAttrs,
   );
   const graph = styleAndSize(nodes, edges, settings);
+  applyLayoutSizeScaleToEdges(edges, computeLayoutSizeScale(nodes));
   const layout = opts.layout ?? "optimal";
   runLayoutOnGraph(layout, graph, nodes, edges);
   // `optimal` reserves ring room; fill it with uniform rings unless compact is chosen
@@ -188,12 +195,20 @@ export function runLayout(state: State, kind: LayoutKind): State {
 
 export function setFontScale(state: State, delta: number): State {
   state.settings = normalizeSettings(state.settings);
+  // Saved states from older bundles may have a valid settings.fontScale but stale
+  // or missing labelCfg font sizes. Restyle at the OLD scale first so the snapshot
+  // reflects the geometry that setting actually represents.
+  styleAndSize(state.nodes, state.edges, state.settings);
+  const before = captureModelGeometry(state.nodes);
   const fontScale = deltaToScale(delta);
   const settings = { ...state.settings, fontScale };
   const next: State = { ...state, settings };
-  styleAndSize(next.nodes, next.edges, settings); // re-measures + re-styles in place
-  applyAttrMode(next); // keep compact/moderate tidy after a size change
-  applyAutoAvoid(next);
+  styleAndSize(next.nodes, next.edges, settings);
+  const after = captureModelGeometry(next.nodes);
+  // A font adjustment is a direct, one-shot geometry scale. Do not invoke any
+  // attribute placement or avoidance algorithm here: those would reorder the
+  // existing scene. If the measured shapes did not change, this is a no-op.
+  applySizeChangeToModels(next.nodes, next.edges, before, after);
   return next;
 }
 

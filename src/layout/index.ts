@@ -1,5 +1,5 @@
 export { deterministicHash, deterministicRandom, normalizeAngle, getRadius } from "./utils";
-export { smoothFitView, animateNodesToTargets } from "./animation";
+export { smoothFitView, animateNodesToTargets, cancelNodeAnimation } from "./animation";
 export { applyInitialComponentPositions } from "./initialLayout";
 export { spreadDisconnectedComponents } from "./componentSpread";
 export { arrangeLayout } from "./arrangeLayout";

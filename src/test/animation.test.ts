@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { animateNodesToTargets, smoothFitView } from "../layout/animation";
+import { animateNodesToTargets, cancelNodeAnimation, smoothFitView } from "../layout/animation";
 import type { ERNodeModel, GraphLike, GraphNodeLike } from "../types";
 
 class TestNode implements GraphNodeLike {
@@ -74,7 +74,17 @@ class TestGraph implements GraphLike {
   }
 
   getZoom(): number {
-    return 1;
+    return this.matrix[0];
+  }
+
+  fitView(): void {
+    this.matrix[0] = 2;
+    this.matrix[4] = 2;
+  }
+
+  zoomTo(zoom: number): void {
+    this.matrix[0] = zoom;
+    this.matrix[4] = zoom;
   }
 }
 
@@ -126,6 +136,77 @@ describe("layout animation", () => {
       expect(graph.matrix[4]).toBeGreaterThanOrEqual(1);
       expect(graph.matrix[6]).toBeGreaterThanOrEqual(0);
       expect(graph.matrix[7]).toBeGreaterThanOrEqual(0);
+    } finally {
+      restoreRaf();
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("fits small rendered geometry to the viewport after regeneration", () => {
+    const graph = new TestGraph([{ id: "entity-users", x: 0, y: 0 }]);
+    graph.nodes[0].getBBox = () => ({
+      minX: -20,
+      minY: -20,
+      maxX: 20,
+      maxY: 20,
+      width: 40,
+      height: 40,
+      centerX: 0,
+      centerY: 0,
+    });
+    graph.matrix[0] = 0.5;
+    graph.matrix[4] = 0.5;
+    const callbacks: FrameRequestCallback[] = [];
+    const restoreRaf = withAnimationFrame(callbacks);
+    const nowSpy = vi.spyOn(globalThis.performance, "now").mockReturnValue(100);
+
+    try {
+      smoothFitView(graph, 800, "easeOutCubic");
+      callbacks[0](900);
+
+      // The 40 px live bbox should fill the 120 px padded viewport. Its font
+      // ratio must not be multiplied into the viewport zoom a second time.
+      expect(graph.matrix[0]).toBeCloseTo(3, 10);
+      expect(graph.matrix[4]).toBeCloseTo(3, 10);
+      expect(40 * graph.matrix[0]).toBeCloseTo(120, 10);
+    } finally {
+      restoreRaf();
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("uses the regular fit fallback for non-empty degenerate geometry", () => {
+    const graph = new TestGraph([{ id: "entity-users", x: 0, y: 0 }]);
+    graph.nodes[0].getBBox = () => ({
+      minX: 0,
+      minY: 0,
+      maxX: 0,
+      maxY: 0,
+      width: 0,
+      height: 0,
+      centerX: 0,
+      centerY: 0,
+    });
+
+    smoothFitView(graph, 800, "easeOutCubic");
+
+    expect(graph.matrix[0]).toBeCloseTo(2, 10);
+    expect(graph.matrix[4]).toBeCloseTo(2, 10);
+  });
+
+  it("cancels an in-flight node animation before it can overwrite direct geometry changes", () => {
+    const graph = new TestGraph([{ id: "entity-users", x: 0, y: 0 }]);
+    const callbacks: FrameRequestCallback[] = [];
+    const restoreRaf = withAnimationFrame(callbacks);
+    const nowSpy = vi.spyOn(globalThis.performance, "now").mockReturnValue(100);
+
+    try {
+      animateNodesToTargets(graph, new Map([["entity-users", { x: 100, y: 100 }]]), 800);
+      cancelNodeAnimation(graph);
+      callbacks[0](500);
+
+      expect(graph.nodes[0].getModel()).toMatchObject({ x: 0, y: 0 });
+      expect(graph.autoPaint).toBe(true);
     } finally {
       restoreRaf();
       nowSpy.mockRestore();

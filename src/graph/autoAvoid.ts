@@ -1,5 +1,6 @@
 import type { EREdgeModel, ERNodeModel } from "../types";
 import type { NodeSize, NodeSizeResolver, Point } from "./entityMoveSync";
+import { computeLayoutSizeScale } from "./sizeAwareGeometry";
 
 export interface AutoAvoidOptions {
   enabled?: boolean;
@@ -257,6 +258,7 @@ function applyAttributeLineAvoidance(
   positions: Map<string, Point>,
   sizes: Map<string, NodeSize>,
   margin: number,
+  sizeScale: number,
   movableIds?: ReadonlySet<string>,
   searchBudget: LineSearchBudget = { angleSteps: 72, radiusSteps: 120 },
 ): void {
@@ -324,12 +326,12 @@ function applyAttributeLineAvoidance(
     const baseAngle = currentRadius > 1e-6 ? Math.atan2(dy, dx) : 0;
     const baseRadius = Math.max(
       currentRadius,
-      minAttributeRadius(entity, attribute, baseAngle, sizes, margin + 10),
+      minAttributeRadius(entity, attribute, baseAngle, sizes, margin + 10 * sizeScale),
     );
     let best: { point: Point; score: number } | null = null;
 
     const consider = (angle: number, radius: number): void => {
-      const minR = minAttributeRadius(entity, attribute, angle, sizes, margin + 10);
+      const minR = minAttributeRadius(entity, attribute, angle, sizes, margin + 10 * sizeScale);
       const r = Math.max(radius, minR);
       const point = {
         x: entityPoint.x + r * Math.cos(angle),
@@ -348,7 +350,7 @@ function applyAttributeLineAvoidance(
     }
 
     const radiusOffsets = [0];
-    const radiusStep = 8;
+    const radiusStep = 8 * sizeScale;
     for (let step = 1; step <= searchBudget.radiusSteps; step++) {
       const offset = step * radiusStep;
       radiusOffsets.push(offset, -offset);
@@ -388,6 +390,7 @@ function applyRelationshipLineAvoidance(
   positions: Map<string, Point>,
   sizes: Map<string, NodeSize>,
   margin: number,
+  sizeScale: number,
   movableIds?: ReadonlySet<string>,
   searchBudget: LineSearchBudget = { angleSteps: 36, radiusSteps: 80 },
 ): void {
@@ -521,7 +524,7 @@ function applyRelationshipLineAvoidance(
 
     const angleSteps = searchBudget.angleSteps;
     for (let radiusStep = 1; radiusStep <= searchBudget.radiusSteps; radiusStep++) {
-      const radius = radiusStep * 8;
+      const radius = radiusStep * 8 * sizeScale;
       for (let step = 0; step < angleSteps; step++) {
         consider((step / angleSteps) * TAU, radius);
       }
@@ -556,7 +559,8 @@ export function computeAutoAvoidTargets(
 ): Map<string, Point> {
   if (options.enabled === false) return new Map();
 
-  const margin = options.margin ?? 4;
+  const sizeScale = computeLayoutSizeScale(nodes, sizeOf);
+  const margin = options.margin ?? 4 * sizeScale;
   const maxIterations = options.maxIterations ?? 120;
   const original = new Map(nodes.map((node) => [node.id, positionOf(node)]));
   const positions = new Map(Array.from(original, ([id, point]) => [id, { ...point }]));
@@ -601,7 +605,7 @@ export function computeAutoAvoidTargets(
         const rawDelta = separateX ? bp.x - ap.x : bp.y - ap.y;
         const sign =
           Math.abs(rawDelta) > 1e-6 ? Math.sign(rawDelta) : deterministicSign(a.id, b.id);
-        const amount = (separateX ? overlapX : overlapY) + 0.5;
+        const amount = (separateX ? overlapX : overlapY) + 0.5 * sizeScale;
 
         if (separateX) {
           ap.x -= sign * amount * moveA;
@@ -627,6 +631,7 @@ export function computeAutoAvoidTargets(
       positions,
       sizes,
       margin,
+      sizeScale,
       movableIds,
       movableIds ? { angleSteps: 24, radiusSteps: 36 } : undefined,
     );
@@ -636,6 +641,7 @@ export function computeAutoAvoidTargets(
       positions,
       sizes,
       margin,
+      sizeScale,
       movableIds,
       movableIds ? { angleSteps: 24, radiusSteps: 36 } : undefined,
     );
@@ -645,6 +651,7 @@ export function computeAutoAvoidTargets(
       positions,
       sizes,
       margin,
+      sizeScale,
       movableIds,
       movableIds ? { angleSteps: 24, radiusSteps: 36 } : undefined,
     );

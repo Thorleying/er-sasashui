@@ -1,5 +1,7 @@
 import G6 from "@antv/g6";
-import type { ChenModelData, GraphLike } from "../types";
+import { measureNodeSize } from "../builder";
+import type { ChenModelData, ERNodeModel, GraphLike } from "../types";
+import { computeLayoutSizeScale } from "./sizeAwareGeometry";
 
 export interface CreateERGraphOptions {
   container: HTMLElement;
@@ -14,10 +16,7 @@ export interface CreateERGraphOptions {
  *
  * 拆出来是为了把 useGraph 里 ~100 行 G6 配置常量隔离开。
  */
-export function createERGraph({
-  container,
-  layoutCfg,
-}: CreateERGraphOptions): GraphLike {
+export function createERGraph({ container, layoutCfg }: CreateERGraphOptions): GraphLike {
   // G6.Graph 接收一份扁平的 cfg；shouldBegin 等回调里的 e 在 G6 4.x 没有公开类型。
   const graph = new (G6 as any).Graph({
     container,
@@ -78,26 +77,28 @@ export interface ForceLayoutHooks {
 export function buildDefaultLayoutCfg(
   containerWidth: number,
   hooks: ForceLayoutHooks,
+  nodes: ERNodeModel[] = [],
 ): Record<string, unknown> {
+  const sizeScale = computeLayoutSizeScale(nodes);
   return {
     type: "force2",
     preventOverlap: true,
-    nodeSize: (node: { nodeType?: string }) => {
-      const uniformSizes: Record<string, number> = {
-        entity: 140,
-        relationship: 90,
-        attribute: 90,
-      };
-      return uniformSizes[node.nodeType ?? ""] || 90;
+    nodeSize: (node: ERNodeModel) => {
+      const size = measureNodeSize(node);
+      return Math.max(size.width, size.height);
     },
-    nodeSpacing: 20,
-    linkDistance: 120,
+    nodeSpacing: 20 * sizeScale,
+    linkDistance: 120 * sizeScale,
     coulombDisScale: 0.005,
     damping: 0.9,
-    maxSpeed: 1000,
-    minMovement: 0.5,
+    // Force2 repulsion is proportional to factor / distance^2. To keep the
+    // same equilibrium after every linear dimension is scaled by s, its
+    // repulsion coefficient must scale by s^3; attraction and centripetal
+    // forces then both scale linearly with the resized geometry.
+    factor: sizeScale ** 3,
+    maxSpeed: 1000 * sizeScale,
+    minMovement: 0.5 * sizeScale,
     interval: 0.02,
-    factor: 1,
     maxIteration: 800,
     animate: true,
     center: [containerWidth / 2, 300],
