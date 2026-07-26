@@ -511,8 +511,11 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       }
 
       // 等画面安顿好后再为本次输入存一份"初始/恢复后"快照。
+      // 恢复动作可以刷新缩略图或重建后的节点数据，但不应被视为一次修改；
+      // 后续拖动、编辑或切换设置会取消这次排程，并按正常保存更新时间。
       // 力布局 + smoothFitView 总共 ~1s；2.5s 比较稳妥。
-      const saveDelay = positionMap ? 600 : 2500;
+      const restoringSnapshot = positionMap !== null;
+      const saveDelay = restoringSnapshot ? 600 : 2500;
       schedulePersist(
         {
           id: Snapshots.hashInput(trimmed),
@@ -522,6 +525,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
           hideFields: useHideFields,
         },
         saveDelay,
+        restoringSnapshot ? { preserveUpdatedAt: true } : undefined,
       );
 
       // 双击编辑 + hover/drag 同步

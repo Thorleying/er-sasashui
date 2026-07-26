@@ -15,6 +15,12 @@ export interface PersistMeta {
   hideFields: boolean;
 }
 
+export interface PersistOptions {
+  skipThumbnail?: boolean;
+  /** 恢复历史记录时可刷新快照数据，但沿用原修改时间。 */
+  preserveUpdatedAt?: boolean;
+}
+
 export interface UseSnapshotPersistenceOptions {
   graphRef: MutableRefObject<GraphLike | null>;
   containerRef: MutableRefObject<HTMLElement | null>;
@@ -22,9 +28,9 @@ export interface UseSnapshotPersistenceOptions {
 
 export interface SnapshotPersistence {
   /** 立即把当前图同步元信息一起入库；返回的 Promise 在写库完成后 resolve */
-  persistSnapshot: (meta: PersistMeta, options?: { skipThumbnail?: boolean }) => Promise<void>;
+  persistSnapshot: (meta: PersistMeta, options?: PersistOptions) => Promise<void>;
   /** 安排一次"等画面安顿后再保存"，会取消之前安排但未触发的那次 */
-  schedulePersist: (meta: PersistMeta, delayMs: number) => void;
+  schedulePersist: (meta: PersistMeta, delayMs: number, options?: PersistOptions) => void;
   /** 把已安排的延迟保存取消（重新生成时调用） */
   cancelPendingPersist: () => void;
   /** 立即执行挂起的延迟保存（页面隐藏/关闭前兜底调用） */
@@ -35,6 +41,22 @@ export interface SnapshotPersistence {
 // 和 3D 放大预留更充足的采样，同时继续使用 WebP 0.8 控制历史记录体积。
 const THUMBNAIL_TARGET_WIDTH = 1440;
 const THUMBNAIL_VERSION = 3;
+
+export function resolveSnapshotUpdatedAt(
+  existing: SnapshotRecord | null,
+  preserveUpdatedAt: boolean,
+  now: number = Date.now(),
+): number {
+  if (
+    preserveUpdatedAt &&
+    existing &&
+    Number.isFinite(existing.updatedAt) &&
+    existing.updatedAt > 0
+  ) {
+    return existing.updatedAt;
+  }
+  return now;
+}
 
 /** 把导出 SVG 光栅化成高像素密度的 WebP 0.8 dataURL。 */
 function rasterizeSvgThumbnail(
@@ -96,6 +118,7 @@ export function useSnapshotPersistence({
 }: UseSnapshotPersistenceOptions): SnapshotPersistence {
   const pendingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingMetaRef = useRef<PersistMeta | null>(null);
+  const pendingOptionsRef = useRef<PersistOptions | null>(null);
 
   const captureThumbnail = (): Promise<string | null> =>
     new Promise((resolve) => {
@@ -128,10 +151,7 @@ export function useSnapshotPersistence({
       }
     });
 
-  const persistSnapshot = (
-    meta: PersistMeta,
-    options?: { skipThumbnail?: boolean },
-  ): Promise<void> => {
+  const persistSnapshot = (meta: PersistMeta, options?: PersistOptions): Promise<void> => {
     const graph = graphRef.current;
     if (!graph || graph.destroyed) return Promise.resolve();
     // 内置示例只是首次体验内容：无论拖拽、缩放、改标签还是切换显示设置，
@@ -180,7 +200,7 @@ export function useSnapshotPersistence({
           thumbnail: thumb || (existing && existing.thumbnail) || null,
           thumbnailVersion: thumb ? THUMBNAIL_VERSION : existing?.thumbnailVersion,
           createdAt: existing && existing.createdAt ? existing.createdAt : Date.now(),
-          updatedAt: Date.now(),
+          updatedAt: resolveSnapshotUpdatedAt(existing, !!options?.preserveUpdatedAt),
         };
       }).catch((e: unknown) => {
         console.warn("snapshot upsert failed", e);
@@ -194,28 +214,33 @@ export function useSnapshotPersistence({
       pendingSaveTimerRef.current = null;
     }
     pendingMetaRef.current = null;
+    pendingOptionsRef.current = null;
   };
 
-  const schedulePersist = (meta: PersistMeta, delayMs: number) => {
+  const schedulePersist = (meta: PersistMeta, delayMs: number, options?: PersistOptions) => {
     cancelPendingPersist();
     pendingMetaRef.current = meta;
+    pendingOptionsRef.current = options ?? null;
     pendingSaveTimerRef.current = setTimeout(() => {
+      const pendingOptions = pendingOptionsRef.current ?? undefined;
       pendingSaveTimerRef.current = null;
       pendingMetaRef.current = null;
+      pendingOptionsRef.current = null;
       // 触发时若图已被销毁则跳过；下一轮新图会自己安排保存
       if (!graphRef.current || graphRef.current.destroyed) return;
-      persistSnapshot(meta);
+      persistSnapshot(meta, pendingOptions);
     }, delayMs);
   };
 
   const flushPendingPersist = () => {
     const meta = pendingMetaRef.current;
+    const options = pendingOptionsRef.current;
     if (!meta) return;
     cancelPendingPersist();
     if (!graphRef.current || graphRef.current.destroyed) return;
     // 页面即将隐藏/卸载：跳过缩略图（其光栅化依赖 rAF/图片解码，此时
     // 不保证执行），只把节点位置尽快写进库。
-    void persistSnapshot(meta, { skipThumbnail: true });
+    void persistSnapshot(meta, { ...options, skipThumbnail: true });
   };
 
   const flushRef = useRef(flushPendingPersist);
