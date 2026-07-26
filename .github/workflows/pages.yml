@@ -48,6 +48,10 @@ jobs:
         env:
           BASE_PATH: ${{ steps.base.outputs.value }}
 
+      # 隐藏式 sourcemap 只用于本地对照调试，不发布到 Pages
+      - name: Strip sourcemaps from Pages artifact
+        run: find dist -name "*.map" -type f -delete
+
       - name: Configure Pages
         uses: actions/configure-pages@v6
 

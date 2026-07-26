@@ -9,6 +9,9 @@ export default defineConfig({
   base,
   plugins: [react()],
   build: {
+    // 隐藏式 sourcemap：产物里不写 sourceMappingURL 注释，但 .map 文件会生成，
+    // 便于线上报错时本地对照定位；部署工作流不会把 .map 发布出去。
+    sourcemap: "hidden",
     // G6 4.x pulls a large @antv graph-rendering stack. It is split into
     // stable vendor chunks below; keep the warning threshold aligned with that
     // known dependency cost so warnings remain actionable.
