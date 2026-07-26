@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { I18N, type Language } from "../i18n";
+import { I18N, isInitialSampleInput, type Language } from "../i18n";
 import { detectLang } from "../language";
 import { parseSQLTables } from "../parser/sql";
 import { parseDBML } from "../parser/dbml";
@@ -93,15 +93,10 @@ export interface UseGraphResult {
   handleQuickLayout: () => void;
   handleArrangeLayout: () => void;
   restoreFromSnapshot: (snap: SnapshotRecord) => void;
-  persistSnapshot: (meta: {
-    id: string;
-    inputText: string;
-    isColored: boolean;
-    showComment: boolean;
-    hideFields: boolean;
-  }) => Promise<void>;
+  persistSnapshot: (meta: PersistMeta) => Promise<void>;
   persistCurrentSnapshot: () => Promise<void>;
   scheduleCurrentSnapshotPersist: (delayMs?: number) => void;
+  settleAfterRotation: () => void;
 }
 
 /**
@@ -136,7 +131,18 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const graphRef = useRef<GraphLike | null>(null);
   const lastInputRef = useRef("");
   const tablesDataRef = useRef<ParsedTable[] | null>(null);
-  const historyRef = useRef<HistoryManager>(createHistoryManager());
+  // 撤销快照除节点位置/标签外还带图级设置（字号/注释模式），通过 ref 间接
+  // 绑定 capture/apply 回调（真正的实现在下方 mutators 定义完之后赋值）。
+  const historyMetaHooksRef = useRef<{
+    capture: () => unknown;
+    apply: (meta: unknown) => void;
+  }>({ capture: () => undefined, apply: () => {} });
+  const historyRef = useRef<HistoryManager>(
+    createHistoryManager({
+      captureMeta: () => historyMetaHooksRef.current.capture(),
+      applyMeta: (meta) => historyMetaHooksRef.current.apply(meta),
+    }),
+  );
   const forceCtrlRef = useRef<ForceLoopController | null>(null);
   const forceOnRef = useRef(false);
   const autoAvoidRef = useRef(false);
@@ -174,7 +180,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     if (!graph || graph.destroyed) return null;
     const input = lastInputRef.current || stateRef.current.inputText;
     const trimmed = String(input || "").trim();
-    if (!trimmed) return null;
+    if (!trimmed || isInitialSampleInput(trimmed)) return null;
     return {
       id: Snapshots.hashInput(trimmed),
       inputText: trimmed,
@@ -242,6 +248,12 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     }
     if (delayMs > 0) scheduleCurrentSnapshotPersist(delayMs);
     else void persistCurrentSnapshot();
+  };
+
+  // Ctrl+滚轮旋转结束后，开启自动避让时重新检查旋转后的节点/连线几何，
+  // 动画完成再保存；未开启时仍沿用原来的立即保存行为。
+  const settleAfterRotation = () => {
+    persistAfterOptionalAutoAvoid();
   };
 
   const clearParserWarningHideTimer = () => {
@@ -353,6 +365,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       // （既不为新输入排程保存，也不为旧图落档），否则会把"用户随手清空 +
       // 粘错语法"的中间状态固化进历史。
       let parsedData = parseSQLTables(trimmed);
+      const sqlAttemptWarnings = parsedData.warnings ?? [];
       if (parsedData.tables.length === 0) {
         parsedData = parseDBML(trimmed);
       }
@@ -372,7 +385,12 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         tablesDataRef.current = null;
         lastInputRef.current = "";
         setHasGraph(false);
-        showParserWarnings([]);
+        // 解析彻底失败时更要展示带行号的诊断（DBML 尝试的警告优先，
+        // 其次是 SQL 尝试的），而不是只留一句"未找到有效的表"。
+        const diagnostics = (parsedData.warnings ?? []).length
+          ? (parsedData.warnings ?? [])
+          : sqlAttemptWarnings;
+        showParserWarnings(diagnostics);
         setError(cur.t.errNoTable);
         setLoading(false);
         return;
@@ -486,8 +504,11 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       applyGraphStyles(graph, useIsColored, useFontScale);
       if (useAutoAvoid && positionMap) applyGraphAutoAvoid(0);
 
-      // 初始渲染后使用平滑动画调整视图
-      setTimeout(() => smoothFitView(graph, 600, "easeOutQuart"), 200);
+      // 恢复快照路径（不跑力布局）才需要这里 fitView；力布局路径交给
+      // onLayoutEnd 链统一处理，避免"缩一次 → 节点继续飘 → 再缩一次"。
+      if (positionMap) {
+        setTimeout(() => smoothFitView(graph, 600, "easeOutQuart"), 200);
+      }
 
       // 等画面安顿好后再为本次输入存一份"初始/恢复后"快照。
       // 力布局 + smoothFitView 总共 ~1s；2.5s 比较稳妥。
@@ -563,7 +584,23 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // ─── Mutators：setState 与对应图操作绑定到一处 ───────────
   // 不再用 useEffect 监听 props 后用 ref 抑制重入。
 
-  const setInputText = (next: string) => setInputTextState(next);
+  // 输入文本的轻量草稿：即使快照写库失败/来不及，刷新后 SQL 文本也不丢。
+  const DRAFT_KEY = "sql2er-draft";
+  const DRAFT_UPDATED_AT_KEY = "sql2er-draft-updated-at";
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setInputText = (next: string) => {
+    setInputTextState(next);
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      draftTimerRef.current = null;
+      try {
+        window.localStorage.setItem(DRAFT_KEY, next);
+        window.localStorage.setItem(DRAFT_UPDATED_AT_KEY, String(Date.now()));
+      } catch (_) {
+        /* 隐私模式等场景下写失败可忽略 */
+      }
+    }, 500);
+  };
 
   const setIsColored = (next: boolean) => {
     stateRef.current.isColored = next;
@@ -575,9 +612,13 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   };
 
   const setShowComment = (next: boolean) => {
+    const graph = graphRef.current;
+    // 标签会整体切换，先记录（含旧的 showComment meta）供 Ctrl+Z 回退
+    if (hasGraph && graph && !graph.destroyed) {
+      historyRef.current.record(graph);
+    }
     stateRef.current.showComment = next;
     setShowCommentState(next);
-    const graph = graphRef.current;
     if (!hasGraph || !graph || graph.destroyed) return;
     // 不再走 handleGenerate 重建图；直接用每个节点上预先存的 nameLabel /
     // commentLabel 切换 label 字段。布局保持原样，连线在 builder 的 update
@@ -622,13 +663,27 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     persistAfterOptionalAutoAvoid(700);
   };
 
+  // 滑块拖动是连续的 setFontScale 调用；把一次拖动折成一条撤销记录。
+  const fontScaleBurstTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const setFontScale = (next: number) => {
     const safeNext = Math.min(1.6, Math.max(0.4, next));
     disableForceIfOn();
+    const graph = graphRef.current;
+    const canTouchGraph = hasGraph && graph && !graph.destroyed;
+    if (canTouchGraph) {
+      // burst 开始时记录（此刻 stateRef 里还是旧值，meta 捕获的是旧字号）
+      if (fontScaleBurstTimerRef.current === null) {
+        historyRef.current.record(graph);
+      } else {
+        clearTimeout(fontScaleBurstTimerRef.current);
+      }
+      fontScaleBurstTimerRef.current = setTimeout(() => {
+        fontScaleBurstTimerRef.current = null;
+      }, 800);
+    }
     stateRef.current.fontScale = safeNext;
     setFontScaleState(safeNext);
-    const graph = graphRef.current;
-    if (!hasGraph || !graph || graph.destroyed) return;
+    if (!canTouchGraph || !graph) return;
     cancelNodeAnimation(graph);
     const before = captureGraphGeometry(graph);
     updateGraphStyles(graph, stateRef.current.isColored, safeNext);
@@ -640,6 +695,10 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
 
   const setForceOn = (next: boolean) => {
     const wasOn = forceOnRef.current;
+    // 开启前记录一次：力导向会持续移动节点，Ctrl+Z 可退回开启前的布局
+    if (!wasOn && next && graphRef.current && !graphRef.current.destroyed) {
+      historyRef.current.record(graphRef.current);
+    }
     forceOnRef.current = next;
     setForceOnState(next);
     if (forceCtrlRef.current) forceCtrlRef.current.setEnabled(next);
@@ -662,6 +721,31 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     applyGraphAutoAvoid(360, () => {
       void persistCurrentSnapshot();
     });
+  };
+
+  // 撤销/重做时随节点快照一起回退的图级设置
+  historyMetaHooksRef.current = {
+    capture: () => ({
+      fontScale: stateRef.current.fontScale,
+      showComment: stateRef.current.showComment,
+    }),
+    apply: (meta) => {
+      const m = (meta || {}) as { fontScale?: number; showComment?: boolean };
+      if (typeof m.showComment === "boolean" && m.showComment !== stateRef.current.showComment) {
+        stateRef.current.showComment = m.showComment;
+        setShowCommentState(m.showComment);
+        // 标签本身由节点快照恢复，这里只同步开关状态
+      }
+      if (typeof m.fontScale === "number" && m.fontScale !== stateRef.current.fontScale) {
+        stateRef.current.fontScale = m.fontScale;
+        setFontScaleState(m.fontScale);
+        const graph = graphRef.current;
+        if (graph && !graph.destroyed) {
+          updateGraphStyles(graph, stateRef.current.isColored, m.fontScale);
+          graph.refresh?.();
+        }
+      }
+    },
   };
 
   const restoreFromSnapshot = (snap: SnapshotRecord) => {
@@ -696,12 +780,74 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // 那样会让第一次 cleanup 销毁图后第二次 mount 跳过重建，最终右侧示例图
   // 永远不出现。
   useEffect(() => {
-    handleGenerate();
+    // 会话恢复：仅恢复 6 小时内的最近快照或草稿；更早的内容仍保留在
+    // 生成历史中，但刷新/重进时直接回到初始示例。
+    let cancelled = false;
+    (async () => {
+      try {
+        // 清理旧版本曾允许写入的示例快照；即使清理失败，下面的游标筛选
+        // 也会跳过它，保证刷新后不会恢复示例的上次移动位置。
+        const sampleIds = [I18N.zh.sample, I18N.en.sample].map((sample) =>
+          Snapshots.hashInput(sample.trim()),
+        );
+        await Promise.allSettled(
+          sampleIds.map(async (id) => {
+            const stored = await Snapshots.get(id);
+            if (stored && isInitialSampleInput(stored.inputText)) {
+              await Snapshots.deleteById(id);
+            }
+          }),
+        );
+        const recent = await Snapshots.getMostRecent(
+          (snapshot) => !isInitialSampleInput(snapshot.inputText),
+        );
+        if (
+          !cancelled &&
+          recent &&
+          recent.inputText &&
+          Array.isArray(recent.nodes) &&
+          recent.nodes.length > 0 &&
+          Snapshots.isWithinSessionRestoreWindow(recent.updatedAt)
+        ) {
+          restoreFromSnapshot(recent);
+          return;
+        }
+      } catch (_) {
+        /* IndexedDB 不可用时直接走下面的兜底 */
+      }
+      if (cancelled) return;
+      let draft: string | null = null;
+      let draftUpdatedAt: string | null = null;
+      try {
+        draft = window.localStorage.getItem(DRAFT_KEY);
+        draftUpdatedAt = window.localStorage.getItem(DRAFT_UPDATED_AT_KEY);
+      } catch (_) {}
+      const trimmedDraft = draft ? draft.trim() : "";
+      if (
+        trimmedDraft &&
+        !isInitialSampleInput(trimmedDraft) &&
+        Snapshots.isWithinSessionRestoreWindow(draftUpdatedAt)
+      ) {
+        setInputTextState(draft as string);
+        handleGenerate({ inputText: draft as string });
+      } else {
+        handleGenerate();
+      }
+    })();
     return () => {
+      cancelled = true;
       cancelErrorShowFrame();
       clearParserWarningHideTimer();
       cancelParserWarningShowFrame();
       cancelPendingPersist();
+      if (draftTimerRef.current) {
+        clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
+      if (fontScaleBurstTimerRef.current) {
+        clearTimeout(fontScaleBurstTimerRef.current);
+        fontScaleBurstTimerRef.current = null;
+      }
       forceCtrlRef.current?.destroy();
       forceCtrlRef.current = null;
       graphRef.current?.destroy?.();
@@ -710,18 +856,41 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 窗口尺寸变化时同步图表大小
+  // 容器/窗口尺寸变化时同步图表大小（rAF 合并，拖动窗口时不再每个
+  // resize 事件都触发 canvas 重建；ResizeObserver 还能捕捉侧栏折叠等
+  // 非窗口触发的容器变化）
   useEffect(() => {
-    const handleResize = () => {
-      if (graphRef.current && containerRef.current) {
-        graphRef.current.changeSize?.(
-          containerRef.current.offsetWidth,
-          containerRef.current.offsetHeight,
-        );
-      }
+    let frame: number | null = null;
+    const syncSize = () => {
+      frame = null;
+      const graph = graphRef.current;
+      const container = containerRef.current;
+      if (!graph || graph.destroyed || !container) return;
+      const w = container.offsetWidth;
+      const h = container.offsetHeight;
+      if (!w || !h) return;
+      // 关键防护：尺寸没有实际变化就不 changeSize。canvas 自身的尺寸调整
+      // 也会触发 ResizeObserver 回调，若无条件 changeSize 会形成
+      // 观察 → 调整 → 再观察的反馈循环（表现为画布高度持续增长）。
+      const curW = Number(graph.get?.("width")) || 0;
+      const curH = Number(graph.get?.("height")) || 0;
+      if (Math.abs(curW - w) <= 1 && Math.abs(curH - h) <= 1) return;
+      graph.changeSize?.(w, h);
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    const scheduleSync = () => {
+      if (frame === null) frame = requestAnimationFrame(syncSize);
+    };
+    window.addEventListener("resize", scheduleSync);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+      observer = new ResizeObserver(scheduleSync);
+      observer.observe(containerRef.current);
+    }
+    return () => {
+      window.removeEventListener("resize", scheduleSync);
+      observer?.disconnect();
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
   }, []);
 
   // ─── 命令 ────────────────────────────────────────────────
@@ -798,5 +967,6 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     persistSnapshot,
     persistCurrentSnapshot,
     scheduleCurrentSnapshotPersist,
+    settleAfterRotation,
   };
 }

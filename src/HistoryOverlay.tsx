@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { I18N } from "./i18n";
 import type { SnapshotRecord } from "./types";
 import {
@@ -49,6 +49,8 @@ interface HistoryCardVisualStateInput {
   previousShift: number;
   isMobile: boolean;
   viewportWidth: number;
+  /** prefers-reduced-motion：shift 不做逐帧缓动，直接落到目标值 */
+  snap?: boolean;
 }
 
 interface HistoryCardVisualState {
@@ -81,6 +83,7 @@ function computeHistoryCardVisualState({
   previousShift,
   isMobile,
   viewportWidth,
+  snap = false,
 }: HistoryCardVisualStateInput): HistoryCardVisualState {
   const rel = index - currentScroll;
   const distanceToFocus = Math.abs(index - targetScroll);
@@ -95,7 +98,7 @@ function computeHistoryCardVisualState({
   if (isDragging) {
     shiftTarget = Math.max(shiftTarget, highlight * 0.4);
   }
-  const shift = previousShift + (shiftTarget - previousShift) * 0.1;
+  const shift = snap ? shiftTarget : previousShift + (shiftTarget - previousShift) * 0.1;
 
   const highlightOffsetX = highlight * (isMobile ? 40 : 80);
   const highlightRotY = highlight * 15;
@@ -148,7 +151,7 @@ function historyCardTransform(state: HistoryCardVisualState) {
 //  - targetScroll 是吸附目标位置（整数）；currentScroll 用 lerp 追赶
 //  - 焦点卡片 shift→1，被抽离到右侧；其余卡片保持轨道侧 -55° 旋转
 // ─────────────────────────────────────────────────────────
-export const HistoryOverlay = ({
+const HistoryOverlayInner = ({
   open,
   items,
   t,
@@ -158,6 +161,8 @@ export const HistoryOverlay = ({
   formatTimestamp,
 }: HistoryOverlayProps) => {
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const cardRefs = useRef<Array<HTMLDivElement | null>>([]);
   const stateRef = useRef<TrackState>({
     targetScroll: 0,
@@ -216,6 +221,19 @@ export const HistoryOverlay = ({
     setHintVisible(true);
   }, [open, items.length]);
 
+  // 对话框焦点管理：打开时把焦点移入面板（关闭按钮），关闭时归还
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      closeBtnRef.current?.focus();
+      return;
+    }
+    const prev = previousFocusRef.current;
+    previousFocusRef.current = null;
+    if (prev && document.contains(prev)) prev.focus();
+  }, [open]);
+
   // 测量每张快照的宽高比，算出该张缩略图应有的 Y 偏移
   useEffect(() => {
     if (!open) return;
@@ -265,11 +283,7 @@ export const HistoryOverlay = ({
       // 否则原生 click 还没派发，targetScroll 已经在 pointermove 里被改动，
       // 视觉吸附会"吃掉"用户的点击。
       const tgt = e.target as HTMLElement | null;
-      if (
-        tgt &&
-        tgt.closest &&
-        tgt.closest("button, a, input, select, textarea, [data-no-drag]")
-      ) {
+      if (tgt && tgt.closest && tgt.closest("button, a, input, select, textarea, [data-no-drag]")) {
         return;
       }
       const s = stateRef.current;
@@ -336,11 +350,20 @@ export const HistoryOverlay = ({
     window.addEventListener("pointerup", handlePointerUp);
     container.addEventListener("wheel", handleWheel, { passive: false });
 
+    // 前庭敏感用户：跳过 3D 轨道的连续缓动，滚动/吸附瞬间到位
+    const reduceMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
     let raf = 0;
     const loop = () => {
       const s = stateRef.current;
       const isMobile = window.innerWidth < 768;
-      s.currentScroll += (s.targetScroll - s.currentScroll) * 0.08;
+      if (reduceMotion) {
+        s.currentScroll = s.targetScroll;
+      } else {
+        s.currentScroll += (s.targetScroll - s.currentScroll) * 0.08;
+      }
       setRenderRangeIfChanged(getHistoryRenderRange(total, s.currentScroll));
 
       const focusedIndex = Math.round(s.targetScroll);
@@ -360,6 +383,7 @@ export const HistoryOverlay = ({
           previousShift: s.shiftValues[i],
           isMobile,
           viewportWidth: window.innerWidth,
+          snap: reduceMotion,
         });
         s.shiftValues[i] = visual.shift;
 
@@ -411,15 +435,23 @@ export const HistoryOverlay = ({
   };
 
   return (
-    <div className={`history-overlay${open ? " is-open" : ""}`}>
+    <div
+      className={`history-overlay${open ? " is-open" : ""}`}
+      role="dialog"
+      aria-modal={open || undefined}
+      aria-label={t.historyTitle}
+      aria-hidden={!open}
+      // 关闭时面板靠 opacity/pointer-events 隐藏但仍在 DOM 里（保留离场动画），
+      // inert 同时挡住 Tab 焦点与读屏，避免焦点落进不可见面板。
+      inert={!open}
+    >
       <div className="history-header">
         <ClockRotateLeftIcon />
         <span>{t.historyTitle}</span>
-        {items.length > 0 && (
-          <span className="history-count">· {items.length}</span>
-        )}
+        {items.length > 0 && <span className="history-count">· {items.length}</span>}
       </div>
       <button
+        ref={closeBtnRef}
         type="button"
         className="history-close"
         onClick={onClose}
@@ -456,8 +488,7 @@ export const HistoryOverlay = ({
           <div ref={trackRef} className="history-track">
             {renderedEntries.map(({ snap, index: i }) => {
               const entityCount = (snap.nodes || []).filter(
-                (n) =>
-                  typeof n.id === "string" && n.id.indexOf("entity-") === 0,
+                (n) => typeof n.id === "string" && n.id.indexOf("entity-") === 0,
               ).length;
               const tags: string[] = [];
               tags.push(snap.isColored ? t.historyColored : t.historyMono);
@@ -493,9 +524,7 @@ export const HistoryOverlay = ({
                   <div className="history-card-track-overlay" />
                   <div className="history-card-shade" />
                   <div className="history-card-meta">
-                    <span className="history-card-eyebrow">
-                      {formatTimestamp(snap.updatedAt)}
-                    </span>
+                    <span className="history-card-eyebrow">{formatTimestamp(snap.updatedAt)}</span>
                     <div className="history-card-tags">
                       {tags.map((tg, k) => (
                         <span key={k}>{tg}</span>
@@ -531,10 +560,7 @@ export const HistoryOverlay = ({
               );
             })}
           </div>
-          <div
-            className="history-hint"
-            style={{ opacity: hintVisible ? 1 : 0 }}
-          >
+          <div className="history-hint" style={{ opacity: hintVisible ? 1 : 0 }}>
             <ArrowsLeftRightIcon />
             <span>{t.historyHint}</span>
           </div>
@@ -543,3 +569,7 @@ export const HistoryOverlay = ({
     </div>
   );
 };
+
+// memo：App 里字号滑块等高频 state 更新不应连带整个卡片轨道重渲。
+// 配合 App 侧对 onClose/onRestore/onDelete/formatTimestamp 的稳定引用生效。
+export const HistoryOverlay = memo(HistoryOverlayInner);

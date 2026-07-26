@@ -188,6 +188,7 @@ Every time you generate an ER diagram, a **snapshot** (thumbnail + node position
 - **Restore** — drag any card to snap it to the center; clicking _Restore_ then rebuilds the diagram with the saved node positions / labels (no re-layout).
 - **Delete** — the **🗑** button on each card removes just that snapshot.
 - **Persistence** — everything lives in your browser's **IndexedDB** (entries appear only after you generate a non-sample diagram).
+- **Session restore** — refreshing or reopening the page restores diagrams edited within the last 6 hours (layout included). After 6 hours the built-in sample is shown, while generation history remains intact. The input text also has a localStorage draft as a fallback.
 
 > [!TIP]
 > Need to undo your last manual tweak? _Restore_ swaps to a different archived input; for fine-grained step-by-step undo / redo use **Ctrl + Z / Ctrl + Y**.

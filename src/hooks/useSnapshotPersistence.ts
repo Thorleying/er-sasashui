@@ -3,7 +3,7 @@ import type { MutableRefObject } from "react";
 import G6 from "@antv/g6";
 import * as Exporter from "../exporter";
 import * as Snapshots from "../snapshots";
-import { I18N } from "../i18n";
+import { isInitialSampleInput } from "../i18n";
 import { patchRelationshipLinkPoints } from "../builder";
 import type { GraphLike, SnapshotRecord } from "../types";
 
@@ -22,16 +22,70 @@ export interface UseSnapshotPersistenceOptions {
 
 export interface SnapshotPersistence {
   /** 立即把当前图同步元信息一起入库；返回的 Promise 在写库完成后 resolve */
-  persistSnapshot: (meta: PersistMeta) => Promise<void>;
+  persistSnapshot: (meta: PersistMeta, options?: { skipThumbnail?: boolean }) => Promise<void>;
   /** 安排一次"等画面安顿后再保存"，会取消之前安排但未触发的那次 */
   schedulePersist: (meta: PersistMeta, delayMs: number) => void;
   /** 把已安排的延迟保存取消（重新生成时调用） */
   cancelPendingPersist: () => void;
+  /** 立即执行挂起的延迟保存（页面隐藏/关闭前兜底调用） */
+  flushPendingPersist: () => void;
+}
+
+// 聚焦卡片里的图最大会显示到约 330 CSS px。固定输出 1440px，为高分屏
+// 和 3D 放大预留更充足的采样，同时继续使用 WebP 0.8 控制历史记录体积。
+const THUMBNAIL_TARGET_WIDTH = 1440;
+const THUMBNAIL_VERSION = 3;
+
+/** 把导出 SVG 光栅化成高像素密度的 WebP 0.8 dataURL。 */
+function rasterizeSvgThumbnail(
+  svgString: string,
+  width: number,
+  height: number,
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!(width > 0) || !(height > 0)) {
+      resolve(null);
+      return;
+    }
+    const svgBlob = new Blob([svgString], {
+      type: "image/svg+xml;charset=utf-8",
+    });
+    const url = URL.createObjectURL(svgBlob);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const requestedScale = THUMBNAIL_TARGET_WIDTH / width;
+        const scale = Exporter.clampExportScale(width, height, requestedScale);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(width * scale));
+        c.height = Math.max(1, Math.round(height * scale));
+        const ctx = c.getContext("2d");
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const dataUrl = c.toDataURL("image/webp", 0.8);
+        resolve(dataUrl || null);
+      } catch (_) {
+        resolve(null);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
 }
 
 /**
- * 拍 SVG 缩略图 + 写 IndexedDB 快照的逻辑。从 useGraph 拆出来，
- * 让 useGraph 不再持有 captureSvgThumbnail / persistSnapshot / 保存定时器。
+ * 拍缩略图 + 写 IndexedDB 快照的逻辑。从 useGraph 拆出来，
+ * 让 useGraph 不再持有缩略图 / persistSnapshot / 保存定时器。
  *
  * 关键约束：buildExportSVG 内部第一行就同步取数据，调用方紧接着 destroy
  * 旧图也不会丢内容（数据快照已被复制）。
@@ -40,11 +94,10 @@ export function useSnapshotPersistence({
   graphRef,
   containerRef,
 }: UseSnapshotPersistenceOptions): SnapshotPersistence {
-  const pendingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const pendingSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingMetaRef = useRef<PersistMeta | null>(null);
 
-  const captureSvgThumbnail = (): Promise<string | null> =>
+  const captureThumbnail = (): Promise<string | null> =>
     new Promise((resolve) => {
       const graph = graphRef.current;
       if (!graph || graph.destroyed) {
@@ -58,7 +111,7 @@ export function useSnapshotPersistence({
             containerRef,
             patchRelationshipLinkPoints,
             G6,
-            // 与 --color-bg-overlay 一致；让 SVG 底色矩形和暖色卡片融在一起。
+            // 与 --color-bg-overlay 一致；让缩略图底色和暖色卡片融在一起。
             // 用户下载 SVG/PNG 走另一条 buildExportSVG 调用，仍是默认白底。
             backgroundFill: "#fdfcf8",
           },
@@ -67,18 +120,7 @@ export function useSnapshotPersistence({
               resolve(null);
               return;
             }
-            // SVG 里中文等多字节字符要先 UTF-8 再 base64
-            let dataUrl: string;
-            try {
-              dataUrl =
-                "data:image/svg+xml;base64," +
-                btoa(unescape(encodeURIComponent(result.svgString)));
-            } catch (_) {
-              dataUrl =
-                "data:image/svg+xml;charset=utf-8," +
-                encodeURIComponent(result.svgString);
-            }
-            resolve(dataUrl);
+            rasterizeSvgThumbnail(result.svgString, result.width, result.height).then(resolve);
           },
         );
       } catch (_) {
@@ -86,96 +128,119 @@ export function useSnapshotPersistence({
       }
     });
 
-  const persistSnapshot = (meta: PersistMeta): Promise<void> =>
-    new Promise((resolve) => {
-      const graph = graphRef.current;
-      if (!graph || graph.destroyed) {
-        resolve();
-        return;
-      }
-      // 输入框还停留在示例（中/英文均算）时不写入历史 ——
-      // 否则首次打开页面什么都没改也会有一条快照。
-      const trimmedInput = String(meta.inputText || "").trim();
-      if (
-        trimmedInput === I18N.zh.sample.trim() ||
-        trimmedInput === I18N.en.sample.trim()
-      ) {
-        resolve();
-        return;
-      }
-      const nodes = Snapshots.captureGraphSnapshot(graph);
-      if (!nodes || nodes.length === 0) {
-        resolve();
-        return;
-      }
-      const thumbPromise = captureSvgThumbnail();
-      thumbPromise.then((thumb) => {
-        const writeWith = (existing: SnapshotRecord | null) => {
-          // 数据没变化时跳过写入：恢复 / 打开历史面板都会触发一次
-          // persistSnapshot，若原封不动也刷新 updatedAt，会让历史排序"乱跳"。
-          if (
-            existing &&
-            existing.isColored === meta.isColored &&
-            existing.showComment === meta.showComment &&
-            existing.hideFields === meta.hideFields &&
-            Array.isArray(existing.nodes) &&
-            existing.nodes.length === nodes.length &&
-            existing.nodes.every(
-              (p, i) =>
-                p.id === nodes[i].id &&
-                p.x === nodes[i].x &&
-                p.y === nodes[i].y &&
-                p.label === nodes[i].label,
-            )
-          ) {
-            resolve();
-            return;
-          }
-          Snapshots.put({
-            id: meta.id,
-            inputText: meta.inputText,
-            isColored: meta.isColored,
-            showComment: meta.showComment,
-            hideFields: meta.hideFields,
-            nodes,
-            thumbnail: thumb || (existing && existing.thumbnail) || null,
-            createdAt:
-              existing && existing.createdAt
-                ? existing.createdAt
-                : Date.now(),
-            updatedAt: Date.now(),
-          })
-            .then(() => resolve())
-            .catch((e: unknown) => {
-              console.warn("snapshot put failed", e);
-              resolve();
-            });
+  const persistSnapshot = (
+    meta: PersistMeta,
+    options?: { skipThumbnail?: boolean },
+  ): Promise<void> => {
+    const graph = graphRef.current;
+    if (!graph || graph.destroyed) return Promise.resolve();
+    // 内置示例只是首次体验内容：无论拖拽、缩放、改标签还是切换显示设置，
+    // 都不写入历史，也就不会在刷新后恢复用户调整过的位置。
+    if (isInitialSampleInput(meta.inputText)) return Promise.resolve();
+
+    const nodes = Snapshots.captureGraphSnapshot(graph);
+    if (!nodes || nodes.length === 0) return Promise.resolve();
+
+    const thumbPromise = options?.skipThumbnail
+      ? Promise.resolve<string | null>(null)
+      : captureThumbnail();
+    return thumbPromise.then((thumb) =>
+      Snapshots.upsert(meta.id, (existing: SnapshotRecord | null) => {
+        // 数据没变化时跳过写入：恢复 / 打开历史面板都会触发一次
+        // persistSnapshot，若原封不动也刷新 updatedAt，会让历史排序"乱跳"。
+        const dataUnchanged =
+          existing &&
+          existing.isColored === meta.isColored &&
+          existing.showComment === meta.showComment &&
+          existing.hideFields === meta.hideFields &&
+          Array.isArray(existing.nodes) &&
+          existing.nodes.length === nodes.length &&
+          existing.nodes.every(
+            (p, i) =>
+              p.id === nodes[i].id &&
+              p.x === nodes[i].x &&
+              p.y === nodes[i].y &&
+              p.label === nodes[i].label,
+          );
+        // 版本 3 之前的缩略图分辨率较低。当前图即使节点没变，也要在下一次
+        // 保存时重拍为 1440px WebP；页面隐藏时的无缩略图快照仍可跳过。
+        if (
+          dataUnchanged &&
+          (options?.skipThumbnail || existing?.thumbnailVersion === THUMBNAIL_VERSION || !thumb)
+        ) {
+          return null;
+        }
+        return {
+          id: meta.id,
+          inputText: meta.inputText,
+          isColored: meta.isColored,
+          showComment: meta.showComment,
+          hideFields: meta.hideFields,
+          nodes,
+          thumbnail: thumb || (existing && existing.thumbnail) || null,
+          thumbnailVersion: thumb ? THUMBNAIL_VERSION : existing?.thumbnailVersion,
+          createdAt: existing && existing.createdAt ? existing.createdAt : Date.now(),
+          updatedAt: Date.now(),
         };
-        Snapshots.get(meta.id)
-          .then(writeWith)
-          .catch(() => writeWith(null));
-      });
-    });
+      }).catch((e: unknown) => {
+        console.warn("snapshot upsert failed", e);
+      }),
+    );
+  };
 
   const cancelPendingPersist = () => {
     if (pendingSaveTimerRef.current) {
       clearTimeout(pendingSaveTimerRef.current);
       pendingSaveTimerRef.current = null;
     }
+    pendingMetaRef.current = null;
   };
 
   const schedulePersist = (meta: PersistMeta, delayMs: number) => {
     cancelPendingPersist();
+    pendingMetaRef.current = meta;
     pendingSaveTimerRef.current = setTimeout(() => {
       pendingSaveTimerRef.current = null;
+      pendingMetaRef.current = null;
       // 触发时若图已被销毁则跳过；下一轮新图会自己安排保存
       if (!graphRef.current || graphRef.current.destroyed) return;
       persistSnapshot(meta);
     }, delayMs);
   };
 
-  // 卸载时取消任何挂起的保存定时器，避免在新图之上意外触发旧 meta 的保存。
-  useEffect(() => cancelPendingPersist, []);
+  const flushPendingPersist = () => {
+    const meta = pendingMetaRef.current;
+    if (!meta) return;
+    cancelPendingPersist();
+    if (!graphRef.current || graphRef.current.destroyed) return;
+    // 页面即将隐藏/卸载：跳过缩略图（其光栅化依赖 rAF/图片解码，此时
+    // 不保证执行），只把节点位置尽快写进库。
+    void persistSnapshot(meta, { skipThumbnail: true });
+  };
 
-  return { persistSnapshot, schedulePersist, cancelPendingPersist };
+  const flushRef = useRef(flushPendingPersist);
+  flushRef.current = flushPendingPersist;
+
+  // 关标签页 / 切后台时立即兜底保存，否则延迟保存窗口内的操作会丢。
+  useEffect(() => {
+    const onPageHide = () => flushRef.current();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flushRef.current();
+    };
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      // 卸载：先 flush 再清理，而不是直接丢弃挂起的保存
+      flushRef.current();
+    };
+  }, []);
+
+  return {
+    persistSnapshot,
+    schedulePersist,
+    cancelPendingPersist,
+    flushPendingPersist,
+  };
 }

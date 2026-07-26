@@ -12,15 +12,26 @@ export interface UseExportButtonOptions {
   // 第二个参数是"真正保存文件"的函数，由调用方在文件就绪时交回。
   runExport: (fmt: ExportFormat, onDone: ExportDoneCallback) => void;
   onError: (message: string) => void;
+  /** 展开态可选的格式列表（键盘导航用），默认 PNG/XML/SVG */
+  formats?: ExportFormat[];
 }
 
-export function useExportButton({ hasGraph, runExport, onError }: UseExportButtonOptions) {
+const DEFAULT_FORMATS: ExportFormat[] = ["PNG", "XML", "SVG"];
+
+export function useExportButton({
+  hasGraph,
+  runExport,
+  onError,
+  formats = DEFAULT_FORMATS,
+}: UseExportButtonOptions) {
   // 动效导出按钮：idle → open → loading → success → idle
   const [exportState, setExportState] = useState<ExportState>("idle");
   // 错位显示的 view（短暂置 null 以触发离场动画）
   const [exportView, setExportView] = useState<ExportView>("idle");
   const [exportFmt, setExportFmt] = useState<ExportFormat>("PNG");
   const [exportProgress, setExportProgress] = useState(0);
+  // 键盘导航：鼠标打开时不预选；由键盘打开或按方向键后才高亮。
+  const [kbActiveIdx, setKbActiveIdx] = useState<number | null>(null);
   const exportBtnRef = useRef<HTMLButtonElement | null>(null);
   const exportTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -41,11 +52,12 @@ export function useExportButton({ hasGraph, runExport, onError }: UseExportButto
     addExportTimer(() => setExportView("idle"), 240);
     setExportProgress(0);
   };
-  const toExportOpen = () => {
+  const toExportOpen = (fromKeyboard = false) => {
     if (!hasGraph) return;
     clearExportTimers();
     setExportState("open");
     setExportView(null);
+    setKbActiveIdx(fromKeyboard ? 0 : null);
     addExportTimer(() => setExportView("open"), 220);
   };
   const toExportLoading = (fmt: ExportFormat) => {
@@ -87,7 +99,7 @@ export function useExportButton({ hasGraph, runExport, onError }: UseExportButto
           setExportState("success");
           setExportView(null);
           addExportTimer(() => setExportView("success"), 160);
-          addExportTimer(() => toExportIdle(), 2000);
+          addExportTimer(() => toExportIdle(), 1000);
         }, 240);
       }, wait);
     };
@@ -152,9 +164,46 @@ export function useExportButton({ hasGraph, runExport, onError }: UseExportButto
     }
   };
   const onExportBtnKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-    if ((e.key === "Enter" || e.key === " ") && exportState === "idle") {
-      e.preventDefault();
-      toExportOpen();
+    if (exportState === "idle") {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toExportOpen(true);
+      }
+      return;
+    }
+    if (exportState !== "open") return;
+    // 展开态：方向键在格式间移动，Enter/Space 确认，Esc 由全局监听收起
+    switch (e.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        e.preventDefault();
+        setKbActiveIdx((i) => (i === null ? 0 : (i + 1) % formats.length));
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        e.preventDefault();
+        setKbActiveIdx((i) =>
+          i === null ? formats.length - 1 : (i - 1 + formats.length) % formats.length,
+        );
+        break;
+      case "Home":
+        e.preventDefault();
+        setKbActiveIdx(0);
+        break;
+      case "End":
+        e.preventDefault();
+        setKbActiveIdx(formats.length - 1);
+        break;
+      case "Enter":
+      case " ": {
+        e.preventDefault();
+        if (kbActiveIdx === null) break;
+        const fmt = formats[kbActiveIdx];
+        if (fmt) toExportLoading(fmt);
+        break;
+      }
+      default:
+        break;
     }
   };
 
@@ -167,5 +216,8 @@ export function useExportButton({ hasGraph, runExport, onError }: UseExportButto
     onExportBtnClick,
     onExportBtnKey,
     toExportIdle,
+    /** 展开态键盘高亮的格式（渲染层据此加高亮类名） */
+    kbActiveFmt:
+      exportState === "open" && kbActiveIdx !== null ? (formats[kbActiveIdx] ?? null) : null,
   };
 }

@@ -3,7 +3,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -11,7 +10,8 @@ import G6 from "@antv/g6";
 import { I18N } from "./i18n";
 import type { Language } from "./i18n";
 import { patchRelationshipLinkPoints, registerCustomNodes } from "./builder";
-import { CodeEditor } from "./editor";
+// 嵌入产物是单文件 HTML（esbuild 打包不做代码分割），这里保持静态引用
+import { CodeEditor } from "./codeEditor";
 import {
   ArrowsUpDownLeftRightIcon,
   CircleNodesIcon,
@@ -89,6 +89,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     setForceOn,
     setAutoAvoid,
     fitView,
+    settleAfterRotation,
     currentState,
   } = useEmbeddedGraph(state);
 
@@ -145,6 +146,15 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     }, 180);
   };
 
+  // exporter 只上报错误码，这里映射为当前语言的文案。
+  const exportErrorText: Record<Exporter.ExportErrorCode, string> = {
+    "export-no-graph": t.errExportNoGraph,
+    "export-svg-failed": t.errExportSvg,
+    "export-png-failed": t.errExportPng,
+    "export-drawio-failed": t.errExportDrawio,
+  };
+  const onExportError = (code: Exporter.ExportErrorCode) => setError(exportErrorText[code] ?? code);
+
   const handleExportSVG = (onDone: ExportDoneCallback) => {
     if (!hasGraph || !graphRef.current) {
       onDone(new Error("no-graph"));
@@ -154,7 +164,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
       graphRef,
       hasGraph,
       containerRef,
-      onError: setError,
+      onError: onExportError,
       onDone,
       patchRelationshipLinkPoints,
       G6,
@@ -170,7 +180,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
       graphRef,
       hasGraph,
       containerRef,
-      onError: setError,
+      onError: onExportError,
       onDone,
       patchRelationshipLinkPoints,
       G6,
@@ -193,7 +203,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     Exporter.exportDrawio({
       graphRef,
       hasGraph,
-      onError: setError,
+      onError: onExportError,
       onDone,
       patchRelationshipLinkPoints,
     });
@@ -215,11 +225,21 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     onExportBtnClick,
     onExportBtnKey,
     toExportIdle,
-  } = useExportButton({ hasGraph, runExport, onError: setError });
+    kbActiveFmt,
+  } = useExportButton({
+    hasGraph,
+    runExport,
+    onError: setError,
+    formats: EMBEDDED_EXPORT_FORMATS,
+  });
 
   useUndoRedoShortcuts({
     graphRef,
     historyRef,
+    // 撤销/重做前先停掉持续力导向，避免力循环与补间动画互写坐标
+    onBeforeChange: () => {
+      if (forceOn) setForceOn(false);
+    },
     onAfterChange: () => {
       if (graphRef.current && !graphRef.current.destroyed) {
         patchRelationshipLinkPoints(graphRef.current);
@@ -230,11 +250,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     containerRef,
     graphRef,
     historyRef,
-    onAfterChange: () => {
-      if (graphRef.current && !graphRef.current.destroyed) {
-        patchRelationshipLinkPoints(graphRef.current);
-      }
-    },
+    onAfterChange: settleAfterRotation,
   });
 
   const updateFontScaleFromPointer = (clientX: number, clientY: number, el: HTMLDivElement) => {
@@ -255,29 +271,31 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
     updateFontScaleFromPointer(e.clientX, e.clientY, e.currentTarget);
   };
 
+  // setFontScale 每次调用都会全图重算尺寸并 refresh；把 pointermove 合并成
+  // 每帧最多一次（与 App 同款处理）。
+  const fontSliderFrameRef = useRef<number | null>(null);
+  const fontSliderPendingRef = useRef<{ x: number; y: number; el: HTMLDivElement } | null>(null);
+  const scheduleFontScaleFromPointer = (clientX: number, clientY: number, el: HTMLDivElement) => {
+    fontSliderPendingRef.current = { x: clientX, y: clientY, el };
+    if (fontSliderFrameRef.current !== null) return;
+    fontSliderFrameRef.current = requestAnimationFrame(() => {
+      fontSliderFrameRef.current = null;
+      const pending = fontSliderPendingRef.current;
+      fontSliderPendingRef.current = null;
+      if (pending) updateFontScaleFromPointer(pending.x, pending.y, pending.el);
+    });
+  };
+  useEffect(
+    () => () => {
+      if (fontSliderFrameRef.current !== null) cancelAnimationFrame(fontSliderFrameRef.current);
+    },
+    [],
+  );
+
   const handleFontSliderPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
     e.preventDefault();
-    updateFontScaleFromPointer(e.clientX, e.clientY, e.currentTarget);
-  };
-
-  const handleFontSliderMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const slider = e.currentTarget;
-    updateFontScaleFromPointer(e.clientX, e.clientY, slider);
-
-    const handleMove = (moveEvent: globalThis.MouseEvent) => {
-      moveEvent.preventDefault();
-      updateFontScaleFromPointer(moveEvent.clientX, moveEvent.clientY, slider);
-    };
-    const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    scheduleFontScaleFromPointer(e.clientX, e.clientY, e.currentTarget);
   };
 
   const handleFontSliderKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -308,6 +326,8 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
       onClick={onExportBtnClick}
       onKeyDown={onExportBtnKey}
       aria-label={t.btnExportLabel}
+      aria-haspopup="menu"
+      aria-expanded={exportState === "open"}
     >
       <div
         className="export-progress"
@@ -339,11 +359,18 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
           <path d="M7 2v7.5m0 0l-3-3m3 3l3-3M2.5 12h9" />
         </svg>
       </div>
-      <div className={`export-view export-view-open${exportView === "open" ? " is-on" : ""}`}>
+      <div
+        className={`export-view export-view-open${exportView === "open" ? " is-on" : ""}`}
+        role="menu"
+      >
         {EMBEDDED_EXPORT_FORMATS.map((fmt, index) => (
           <span className="embedded-export-item" key={fmt}>
             {index > 0 && <div className="export-sep" />}
-            <div className="export-opt" data-fmt={fmt}>
+            <div
+              className={`export-opt${kbActiveFmt === fmt ? " is-kbd-active" : ""}`}
+              data-fmt={fmt}
+              role="menuitem"
+            >
               <span className="export-opt-label">{fmt}</span>
             </div>
           </span>
@@ -355,7 +382,8 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
             e.stopPropagation();
             toExportIdle();
           }}
-          aria-label="Cancel"
+          role="menuitem"
+          aria-label={t.ariaCancel}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -373,7 +401,10 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
           </svg>
         </div>
       </div>
-      <div className={`export-view export-view-loading${exportView === "loading" ? " is-on" : ""}`}>
+      <div
+        className={`export-view export-view-loading${exportView === "loading" ? " is-on" : ""}`}
+        aria-live="polite"
+      >
         <svg
           className="export-spinner"
           xmlns="http://www.w3.org/2000/svg"
@@ -390,7 +421,10 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
           {t.exportGenerating} {exportFmt}...
         </span>
       </div>
-      <div className={`export-view export-view-success${exportView === "success" ? " is-on" : ""}`}>
+      <div
+        className={`export-view export-view-success${exportView === "success" ? " is-on" : ""}`}
+        aria-live="polite"
+      >
         <svg
           className="check-icon"
           viewBox="0 0 14 14"
@@ -417,9 +451,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
                 <span style={{ fontSize: "1.5rem" }}>📄</span>
                 {t.cardInputTitle}
               </h2>
-              <span className="embedded-readonly-badge">
-                {lang === "zh" ? "只读" : "Read-only"}
-              </span>
+              <span className="embedded-readonly-badge">{t.readonlyLabel}</span>
             </div>
             <div className="card-content embedded-input-content">
               <div className="embedded-editor-pane">
@@ -511,7 +543,7 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
               </div>
               <div className="embedded-header-actions">
                 <button className="btn btn-sm btn-accent" onClick={fitView} disabled={!hasGraph}>
-                  {lang === "zh" ? "适配画布" : "Fit canvas"}
+                  {t.fitCanvas}
                 </button>
               </div>
             </div>
@@ -521,41 +553,56 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
                 className={`diagram-container ${showBackground ? "" : "no-grid"}`}
                 style={{ border: "none", borderRadius: 0 }}
               >
-                <div
+                <button
+                  type="button"
                   className="background-toggle"
                   onClick={() => setShowBackground(!showBackground)}
                   title={showBackground ? t.tipHideBg : t.tipShowBg}
+                  aria-label={showBackground ? t.tipHideBg : t.tipShowBg}
+                  aria-pressed={!showBackground}
                 >
                   {showBackground ? <EyeIcon /> : <EyeSlashIcon />}
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`colorize-toggle ${isColored ? "active" : ""}`}
                   onClick={() => setIsColored(!isColored)}
                   title={isColored ? t.tipColorOff : t.tipColorOn}
+                  aria-label={isColored ? t.tipColorOff : t.tipColorOn}
+                  aria-pressed={isColored}
                 >
                   <PaletteIcon />
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`attrs-toggle ${hideFields ? "active" : ""}`}
                   onClick={() => setHideFields(!hideFields)}
                   title={hideFields ? t.tipShowAttrs : t.tipHideAttrs}
+                  aria-label={hideFields ? t.tipShowAttrs : t.tipHideAttrs}
+                  aria-pressed={hideFields}
                 >
                   <ListUlIcon />
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`force-toggle ${forceOn ? "active" : ""}`}
                   onClick={() => setForceOn(!forceOn)}
                   title={forceOn ? t.tipForceOff : t.tipForceOn}
+                  aria-label={forceOn ? t.tipForceOff : t.tipForceOn}
+                  aria-pressed={forceOn}
                 >
                   <CircleNodesIcon />
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`avoid-toggle ${autoAvoid ? "active" : ""}`}
                   onClick={() => setAutoAvoid(!autoAvoid)}
                   title={autoAvoid ? t.tipAutoAvoidOff : t.tipAutoAvoidOn}
+                  aria-label={autoAvoid ? t.tipAutoAvoidOff : t.tipAutoAvoidOn}
+                  aria-pressed={autoAvoid}
                 >
                   <ArrowsUpDownLeftRightIcon />
-                </div>
+                </button>
                 <div
                   className="font-size-slider"
                   title={t.tipFontSize}
@@ -572,7 +619,6 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
                   }
                   onPointerDown={handleFontSliderPointerDown}
                   onPointerMove={handleFontSliderPointerMove}
-                  onMouseDown={handleFontSliderMouseDown}
                   onKeyDown={handleFontSliderKeyDown}
                 >
                   <span className="font-size-slider-mark font-size-slider-mark-large">A</span>
@@ -643,7 +689,6 @@ export default function EmbeddedApp({ state, lang }: EmbeddedAppProps) {
             </div>
           </div>
         </div>
-
       </div>
     </div>
   );

@@ -22,9 +22,21 @@
 
   --app-accent: var(--color-accent-orange);
   --app-accent-warm: var(--color-accent-warm);
+
+  /* z-index 体系：overlay > corner（GitHub 折角 / 语言胶囊）> pill > toolbar */
+  --z-toolbar: 100;
+  --z-pill: 900;
+  --z-corner: 1200;
+  --z-overlay: 1300;
+
+  /* 画布浮动工具列：起点 + 步进（移动端 / embedded 只需覆盖变量） */
+  --toolbar-top: 16px;
+  --toolbar-step: 48px;
 }
 
-* {
+/* 鼠标 / 触摸聚焦不显示焦点环；键盘聚焦由 base.css 的全局
+   :focus-visible 规则（以及下方针对具体控件的规则）提供可见焦点环 */
+:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -232,46 +244,26 @@ body::before {
   border-radius: 0 0 var(--radius-xl) var(--radius-xl) !important;
 }
 
-.embedded-mode .background-toggle {
-  left: 16px;
-  right: auto;
-  bottom: auto;
-  top: 16px;
-}
-
-.embedded-mode .colorize-toggle {
-  left: 16px;
-  right: auto;
-  bottom: auto;
-  top: 64px;
-}
-
-.embedded-mode .attrs-toggle {
-  left: 16px;
-  right: auto;
-  bottom: auto;
-  top: 112px;
-}
-
+/* embedded 模式没有 history-toggle：force / avoid / slider 依次前移一档。
+   位置统一由 --toolbar-n 驱动（top 公式在下方浮动按钮基础规则里）。 */
 .embedded-mode .force-toggle {
-  left: 16px;
-  right: auto;
-  bottom: auto;
-  top: 160px;
+  --toolbar-n: 3;
 }
 
 .embedded-mode .avoid-toggle {
+  --toolbar-n: 4;
   left: 16px;
   right: auto;
   bottom: auto;
-  top: 208px;
+  top: calc(var(--toolbar-top) + var(--toolbar-n, 0) * var(--toolbar-step));
 }
 
 .embedded-mode .font-size-slider {
+  --toolbar-n: 5;
   left: 16px;
   right: auto;
   bottom: auto;
-  top: 264px;
+  top: calc(var(--toolbar-top) + var(--toolbar-n, 0) * var(--toolbar-step) + 8px);
 }
 
 .embedded-export-item {
@@ -282,7 +274,7 @@ body::before {
   position: absolute;
   top: clamp(14px, 1.8vw, 24px);
   left: 50%;
-  z-index: 900;
+  z-index: var(--z-pill);
   height: 42px;
   width: min(332px, calc(100vw - 180px));
   box-sizing: border-box;
@@ -593,32 +585,6 @@ body.legend-top-visible .header {
 }
 
 /* ═══════════════════════════════════════
-   输入框（textarea fallback）
-═══════════════════════════════════════ */
-.input-textarea {
-  width: 100%;
-  min-height: 480px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--radius-md);
-  padding: 18px;
-  font-family: var(--app-font-mono);
-  font-size: 13.5px;
-  line-height: 1.65;
-  background: var(--app-bg-overlay);
-  color: var(--app-ink);
-  resize: none;
-  flex: 1;
-  transition:
-    border-color var(--duration-normal) var(--ease-default),
-    box-shadow var(--duration-normal) var(--ease-default);
-}
-
-.input-textarea:focus {
-  border-color: var(--app-accent);
-  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.2);
-}
-
-/* ═══════════════════════════════════════
    按钮
 ═══════════════════════════════════════ */
 .btn {
@@ -668,23 +634,6 @@ body.legend-top-visible .header {
   transform: translateY(0);
 }
 
-.btn-secondary {
-  background: transparent;
-  color: var(--app-ink);
-  border-color: var(--app-border-strong);
-}
-
-.btn-secondary:hover {
-  transform: translateY(-2px);
-  background: var(--app-bg-overlay);
-  border-color: var(--app-ink);
-}
-
-.btn-secondary:active {
-  transform: translateY(0);
-  background: var(--app-bg-raised);
-}
-
 .btn-sm {
   height: 36px;
   padding: 0 16px;
@@ -722,11 +671,6 @@ body.legend-top-visible .header {
   width: auto;
   min-width: 0;
   overflow: hidden;
-}
-
-.button-group .btn-secondary {
-  flex: 1;
-  min-width: 140px;
 }
 
 /* 主按钮标签在导出按钮展开时平滑收缩为短标签；
@@ -776,6 +720,12 @@ body.legend-top-visible .header {
 /* ═══════════════════════════════════════
    ER 图示容器
 ═══════════════════════════════════════ */
+/* G6 的 <canvas> 默认是行内元素，基线空隙会让内容高度比 canvas 高约 4px；
+   配合 ResizeObserver 同步尺寸时会形成"越量越高"的反馈循环，必须块级化。 */
+.diagram-container canvas {
+  display: block;
+}
+
 .diagram-container {
   width: 100%;
   flex: 1;
@@ -807,6 +757,7 @@ body.legend-top-visible .header {
 .avoid-toggle {
   position: absolute;
   left: 16px;
+  top: calc(var(--toolbar-top) + var(--toolbar-n, 0) * var(--toolbar-step));
   width: 40px;
   height: 40px;
   border-radius: 50%;
@@ -818,7 +769,15 @@ body.legend-top-visible .header {
   display: grid;
   place-items: center;
   cursor: pointer;
-  z-index: 100;
+  z-index: var(--z-toolbar);
+  /* button 兼容：这些控件将从 <div> 换成 <button>，
+     以下声明保证换元素后视觉不变 */
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
   transition:
     transform var(--duration-fast) var(--ease-default),
     background var(--duration-normal) var(--ease-default),
@@ -827,33 +786,34 @@ body.legend-top-visible .header {
 }
 
 .background-toggle {
-  top: 16px;
+  --toolbar-n: 0;
 }
 
 .colorize-toggle {
-  top: 64px;
+  --toolbar-n: 1;
 }
 
 .attrs-toggle {
-  top: 112px;
+  --toolbar-n: 2;
 }
 
 .history-toggle {
-  top: 160px;
+  --toolbar-n: 3;
 }
 
 .force-toggle {
-  top: 208px;
+  --toolbar-n: 4;
 }
 
 .avoid-toggle {
-  top: 256px;
+  --toolbar-n: 5;
 }
 
 .font-size-slider {
+  --toolbar-n: 6;
   position: absolute;
   left: 16px;
-  top: 312px;
+  top: calc(var(--toolbar-top) + var(--toolbar-n, 0) * var(--toolbar-step) + 8px);
   width: 40px;
   height: 172px;
   box-sizing: border-box;
@@ -871,7 +831,7 @@ body.legend-top-visible .header {
   cursor: grab;
   user-select: none;
   touch-action: none;
-  z-index: 100;
+  z-index: var(--z-toolbar);
   transition:
     transform var(--duration-fast) var(--ease-default),
     border-color var(--duration-normal) var(--ease-default),
@@ -1578,40 +1538,6 @@ body.legend-top-visible .header {
     margin-left: 0;
   }
 
-  .embedded-mode .background-toggle {
-    top: 16px;
-  }
-
-  .embedded-mode .colorize-toggle {
-    top: 64px;
-  }
-
-  .embedded-mode .attrs-toggle {
-    top: 112px;
-  }
-
-  .embedded-mode .force-toggle {
-    top: 160px;
-  }
-
-  .embedded-mode .avoid-toggle {
-    left: 16px;
-    right: auto;
-    top: 208px;
-    bottom: auto;
-  }
-
-  .embedded-mode .font-size-slider {
-    left: auto;
-    right: 16px;
-    top: auto;
-    bottom: 16px;
-    width: 172px;
-    height: 40px;
-    padding: 0 12px;
-    flex-direction: row-reverse;
-  }
-
   .skill-install-pill {
     top: 18px;
     height: 38px;
@@ -1635,7 +1561,6 @@ body.legend-top-visible .header {
   }
 
   .btn-primary:hover,
-  .btn-secondary:hover,
   .btn-accent:hover {
     transform: none;
   }
@@ -1643,11 +1568,6 @@ body.legend-top-visible .header {
   .btn-primary:hover {
     background: var(--app-accent);
     box-shadow: 0 6px 18px rgba(217, 119, 87, 0.3);
-  }
-
-  .btn-secondary:hover {
-    background: transparent;
-    border-color: var(--app-border-strong);
   }
 
   .btn-accent:hover {
@@ -1667,11 +1587,7 @@ body.legend-top-visible .header {
     box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
   }
 
-  .btn-primary:active {
-    transform: scale(1.04);
-  }
-
-  .btn-secondary:active,
+  .btn-primary:active,
   .btn-accent:active {
     transform: scale(1.04);
   }
@@ -1692,7 +1608,10 @@ body.legend-top-visible .header {
     bottom: 64px;
   }
 
-  .font-size-slider {
+  /* 字号滑杆移到右下并转为横向；embedded 选择器一并写上
+     以压过 .embedded-mode .font-size-slider 的桌面定位（同特异性、更靠后） */
+  .font-size-slider,
+  .embedded-mode .font-size-slider {
     left: auto;
     right: 16px;
     top: auto;
@@ -1796,6 +1715,12 @@ body.legend-top-visible .header {
 
   .diagram-container {
     min-height: 420px;
+  }
+
+  /* 历史卡片收窄（基础规则在文件后部，这里用更高特异性压过它） */
+  .history-overlay .history-card {
+    width: 260px;
+    height: 360px;
   }
 }
 
@@ -1911,7 +1836,7 @@ body.legend-top-visible .header {
   position: absolute;
   top: 20px;
   right: 20px;
-  z-index: 9999;
+  z-index: var(--z-corner);
   display: inline-flex;
   align-items: center;
   padding: 4px;
@@ -1928,8 +1853,8 @@ body.legend-top-visible .header {
     box-shadow var(--duration-normal) var(--ease-default);
 }
 
-/* 历史面板打开时淡出语言胶囊 —— 它 z-index:9999 比覆盖层高，
-   不隐藏会一直浮在 3D 卡片之上 */
+/* 历史面板打开时淡出语言胶囊（overlay 现已高于 corner 层级，
+   保留此规则避免视觉干扰，React 侧仍在使用 body.history-open） */
 body.history-open .lang-switch {
   opacity: 0;
   pointer-events: none;
@@ -1993,10 +1918,6 @@ body.history-open .lang-switch {
   box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.18);
 }
 
-.lang-switch .lang-option:focus-visible {
-  outline: none;
-}
-
 /* 语言切换：整页平滑过渡 */
 .lang-fade-target {
   transition: opacity 220ms var(--ease-default);
@@ -2006,24 +1927,6 @@ body.is-lang-fading .lang-fade-target {
   opacity: 0.28;
 }
 
-@media (max-width: 500px) {
-  .lang-switch {
-    top: 14px;
-    right: 14px;
-  }
-
-  .lang-switch .lang-option,
-  .lang-switch .lang-thumb {
-    width: 28px;
-    height: 28px;
-    font-size: 0.72rem;
-  }
-
-  .lang-switch[data-lang="en"] .lang-thumb {
-    transform: translateX(28px);
-  }
-}
-
 /* ═══════════════════════════════════════
    GitHub Corner（左上暖橙折角）
 ═══════════════════════════════════════ */
@@ -2031,7 +1934,7 @@ body.is-lang-fading .lang-fade-target {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 9999;
+  z-index: var(--z-corner);
   border: 0;
   width: 68px;
   height: 68px;
@@ -2064,10 +1967,6 @@ body.is-lang-fading .lang-fade-target {
   animation: octocat-wave 640ms var(--ease-default);
 }
 
-.github-corner:focus-visible {
-  outline: none;
-}
-
 .github-corner:focus-visible svg {
   fill: var(--app-accent-warm);
 }
@@ -2090,6 +1989,22 @@ body.is-lang-fading .lang-fade-target {
 }
 
 @media (max-width: 500px) {
+  .lang-switch {
+    top: 14px;
+    right: 14px;
+  }
+
+  .lang-switch .lang-option,
+  .lang-switch .lang-thumb {
+    width: 28px;
+    height: 28px;
+    font-size: 0.72rem;
+  }
+
+  .lang-switch[data-lang="en"] .lang-thumb {
+    transform: translateX(28px);
+  }
+
   .github-corner {
     width: 54px;
     height: 54px;
@@ -2110,26 +2025,50 @@ body.is-lang-fading .lang-fade-target {
 }
 
 /* ═══════════════════════════════════════
-   深色模式（遵循系统）
+   深色模式
+   显式 data-theme 永远优先于系统偏好（与 assets/base.css 同一模式）：
+   - 系统亮色 + 未设置 → 亮色；系统暗色 + 未设置 → 暗色；
+   - 显式设置 data-theme 时以其为准。
 ═══════════════════════════════════════ */
+:root[data-theme="dark"] body::before {
+  background:
+    radial-gradient(ellipse 60% 50% at 12% 0%, rgba(217, 119, 87, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 45% 45% at 100% 100%, rgba(106, 155, 204, 0.08) 0%, transparent 55%);
+}
+
+:root[data-theme="dark"] .cm-host {
+  background: var(--color-bg-overlay);
+  color: var(--app-ink);
+}
+
+/* 暗色下画布不用纯白（刺眼），改柔和纸白，与整体米色系协调 */
+:root[data-theme="dark"] .diagram-container,
+:root[data-theme="dark"] .diagram-container.no-grid {
+  background-color: #f2f0e9;
+}
+
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+}
+
 @media (prefers-color-scheme: dark) {
-  body::before {
+  :root:not([data-theme="light"]) body::before {
     background:
       radial-gradient(ellipse 60% 50% at 12% 0%, rgba(217, 119, 87, 0.12) 0%, transparent 60%),
       radial-gradient(ellipse 45% 45% at 100% 100%, rgba(106, 155, 204, 0.08) 0%, transparent 55%);
   }
 
-  .input-textarea,
-  .cm-host {
+  :root:not([data-theme="light"]) .cm-host {
     background: var(--color-bg-overlay);
     color: var(--app-ink);
   }
 
-  .diagram-container {
-    background-color: #ffffff;
+  :root:not([data-theme="light"]) .diagram-container,
+  :root:not([data-theme="light"]) .diagram-container.no-grid {
+    background-color: #f2f0e9;
   }
 
-  ::-webkit-scrollbar-thumb {
+  :root:not([data-theme="light"]) ::-webkit-scrollbar-thumb {
     background: var(--color-border-default);
   }
 }
@@ -2398,7 +2337,7 @@ body.is-lang-fading .lang-fade-target {
 .history-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: var(--z-overlay);
   /* 之前 68% 过于通透，编辑器/画布会"穿"到面板里来，焦点很难锁住历史卡。
      拉到 96% 之后接近不透明的暖色磨砂层，既有"漂浮在内容之上"的层级感，
      又保留薄薄一层透色让背后的页面可被感知；blur 降到 20px 即可。 */
@@ -2632,12 +2571,8 @@ body.is-lang-fading .lang-fade-target {
   will-change: transform;
   transition: box-shadow var(--duration-slow) var(--ease-default);
 }
-@media (max-width: 768px) {
-  .history-card {
-    width: 260px;
-    height: 360px;
-  }
-}
+/* 768px 下的卡片尺寸收窄见上方统一的 @media (max-width: 768px) 块
+   （选择器 .history-overlay .history-card，特异性高于此处基础规则） */
 
 .history-card-thumb {
   position: absolute;
@@ -2790,4 +2725,10 @@ body.is-lang-fading .lang-fade-target {
   border-radius: var(--radius-lg);
   border: 1px solid color-mix(in srgb, var(--app-ink) 8%, transparent);
   pointer-events: none;
+}
+
+/* ── 导出菜单键盘导航高亮（方向键选择，Enter 确认） ───────── */
+.export-opt.is-kbd-active {
+  background: rgba(64, 64, 64, 0.5);
+  box-shadow: inset 0 0 0 1.5px rgba(212, 212, 212, 0.55);
 }

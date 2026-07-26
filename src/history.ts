@@ -17,11 +17,25 @@ import { animateNodesToTargets } from "./layout/animation";
 import type { GraphLike, NodeSnapshot } from "./types";
 
 const MAX_HISTORY = 100;
-const EMPTY_SNAPSHOT: NodeSnapshot[] = [];
 
 export interface HistoryApplyOptions {
   animate?: boolean;
   onFinish?: () => void;
+}
+
+/**
+ * 除节点位置/标签外，一步操作还可能改变图级设置（字号、注释模式等）。
+ * 通过 captureMeta / applyMeta 让这些设置随撤销/重做一起回退，否则
+ * "改字号 → Ctrl+Z"会把坐标退回旧值而字号停在新值，布局错乱。
+ */
+export interface HistoryMetaHooks {
+  captureMeta?: () => unknown;
+  applyMeta?: (meta: unknown) => void;
+}
+
+interface HistoryEntry {
+  nodes: NodeSnapshot[];
+  meta?: unknown;
 }
 
 export interface HistoryManager {
@@ -106,38 +120,71 @@ function applySnapshot(
   }
 }
 
-export function createManager(): HistoryManager {
-  const past: NodeSnapshot[][] = [];
-  const future: NodeSnapshot[][] = [];
+export function createManager(hooks: HistoryMetaHooks = {}): HistoryManager {
+  const past: HistoryEntry[] = [];
+  const future: HistoryEntry[] = [];
+
+  const captureEntry = (graph: GraphLike): HistoryEntry | null => {
+    const nodes = snapshot(graph);
+    if (!nodes) return null;
+    let meta: unknown;
+    try {
+      meta = hooks.captureMeta ? hooks.captureMeta() : undefined;
+    } catch (_) {
+      meta = undefined;
+    }
+    return { nodes, meta };
+  };
+
+  const metaEqual = (a: unknown, b: unknown): boolean => {
+    if (a === b) return true;
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch (_) {
+      return false;
+    }
+  };
+
+  const applyEntry = (graph: GraphLike, entry: HistoryEntry, options?: HistoryApplyOptions) => {
+    // 先恢复图级设置（字号/注释模式），再补间到快照位置——applyMeta 可能
+    // 改变节点尺寸，先做能让位置动画的目标与最终视觉一致。
+    if (hooks.applyMeta && entry.meta !== undefined) {
+      try {
+        hooks.applyMeta(entry.meta);
+      } catch (_) {}
+    }
+    applySnapshot(graph, entry.nodes, options);
+  };
 
   return {
     record(graph) {
-      const snap = snapshot(graph);
-      if (!snap) return;
+      const entry = captureEntry(graph);
+      if (!entry) return;
       // 与上一次快照完全相同则不重复入栈
-      if (past.length > 0 && snapshotsEqual(past[past.length - 1], snap)) {
+      const last = past[past.length - 1];
+      if (last && snapshotsEqual(last.nodes, entry.nodes) && metaEqual(last.meta, entry.meta)) {
         return;
       }
-      past.push(snap);
+      past.push(entry);
       if (past.length > MAX_HISTORY) past.shift();
       future.length = 0;
     },
 
     undo(graph, options) {
       if (past.length === 0) return false;
-      const cur = snapshot(graph);
-      const prev = past.pop() || EMPTY_SNAPSHOT;
+      const cur = captureEntry(graph);
+      const prev = past.pop();
       if (cur) future.push(cur);
-      applySnapshot(graph, prev, options);
+      if (prev) applyEntry(graph, prev, options);
       return true;
     },
 
     redo(graph, options) {
       if (future.length === 0) return false;
-      const cur = snapshot(graph);
-      const next = future.pop() || EMPTY_SNAPSHOT;
+      const cur = captureEntry(graph);
+      const next = future.pop();
       if (cur) past.push(cur);
-      applySnapshot(graph, next, options);
+      if (next) applyEntry(graph, next, options);
       return true;
     },
 

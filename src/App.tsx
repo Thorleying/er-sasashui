@@ -1,20 +1,21 @@
 import {
+  Fragment,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent,
   type PointerEvent,
   type Ref,
 } from "react";
 import G6 from "@antv/g6";
-import { I18N } from "./i18n";
+import { I18N, isInitialSampleInput } from "./i18n";
 import type { Language } from "./i18n";
 import { detectLang } from "./language";
 import { patchRelationshipLinkPoints, registerCustomNodes } from "./builder";
-import { CodeEditor } from "./editor";
+import { CodeEditor } from "./codeEditor";
 import { SwitchControl } from "./components/SwitchControl";
 import {
   ArrowsUpDownLeftRightIcon,
@@ -56,9 +57,10 @@ const App = () => {
   const previewTitleRef = useRef<HTMLHeadingElement | null>(null);
   const previewActionsRef = useRef<HTMLDivElement | null>(null);
   const legendMeasureRef = useRef<HTMLDivElement | null>(null);
-  // 历史快照面板状态
+  // 历史面板常驻为 opacity: 0 的关闭态，确保首次打开也能触发 CSS 渐显。
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyItems, setHistoryItems] = useState<SnapshotRecord[]>([]);
+  const historyRefreshTimerRef = useRef<number | null>(null);
 
   const {
     containerRef,
@@ -91,8 +93,8 @@ const App = () => {
     handleQuickLayout,
     handleArrangeLayout,
     restoreFromSnapshot,
-    persistSnapshot,
     persistCurrentSnapshot,
+    settleAfterRotation,
   } = useGraph({ t, initialLang });
 
   // 监听语言切换事件（由顶部 vanilla 脚本派发）。
@@ -115,7 +117,16 @@ const App = () => {
     return () => window.removeEventListener("sql2er-lang", onLang);
   }, [lang, inputText, setInputText, handleGenerate]);
 
-  // 导出 SVG/PNG/Drawio - 使用 Exporter 模块
+  // 导出 SVG/PNG/Drawio - 使用 Exporter 模块。
+  // exporter 只上报错误码，这里映射为当前语言的文案。
+  const exportErrorText: Record<Exporter.ExportErrorCode, string> = {
+    "export-no-graph": t.errExportNoGraph,
+    "export-svg-failed": t.errExportSvg,
+    "export-png-failed": t.errExportPng,
+    "export-drawio-failed": t.errExportDrawio,
+  };
+  const onExportError = (code: Exporter.ExportErrorCode) => setError(exportErrorText[code] ?? code);
+
   const handleExportSVG = (onDone: ExportDoneCallback) => {
     if (!hasGraph || !graphRef.current) {
       onDone(new Error("no-graph"));
@@ -125,7 +136,7 @@ const App = () => {
       graphRef,
       hasGraph,
       containerRef,
-      onError: setError,
+      onError: onExportError,
       onDone,
       patchRelationshipLinkPoints,
       G6,
@@ -141,7 +152,7 @@ const App = () => {
       graphRef,
       hasGraph,
       containerRef,
-      onError: setError,
+      onError: onExportError,
       onDone,
       patchRelationshipLinkPoints,
       G6,
@@ -156,7 +167,7 @@ const App = () => {
     Exporter.exportDrawio({
       graphRef,
       hasGraph,
-      onError: setError,
+      onError: onExportError,
       onDone,
       patchRelationshipLinkPoints,
     });
@@ -177,11 +188,16 @@ const App = () => {
     onExportBtnClick,
     onExportBtnKey,
     toExportIdle,
+    kbActiveFmt,
   } = useExportButton({ hasGraph, runExport, onError: setError });
 
   useUndoRedoShortcuts({
     graphRef,
     historyRef,
+    // 撤销/重做前先停掉持续力导向，避免力循环与补间动画互写坐标
+    onBeforeChange: () => {
+      if (forceOn) setForceOn(false);
+    },
     onAfterChange: () => {
       void persistCurrentSnapshot();
     },
@@ -190,9 +206,7 @@ const App = () => {
     containerRef,
     graphRef,
     historyRef,
-    onAfterChange: () => {
-      void persistCurrentSnapshot();
-    },
+    onAfterChange: settleAfterRotation,
   });
 
   // 切换背景显示
@@ -235,26 +249,41 @@ const App = () => {
   const openHistory = async () => {
     try {
       const items = await Snapshots.getAll();
-      setHistoryItems(sortByUpdated(items));
+      setHistoryItems(sortByUpdated(items.filter((item) => !isInitialSampleInput(item.inputText))));
     } catch (e) {
       console.warn("snapshots getAll failed", e);
       setHistoryItems([]);
     }
     setHistoryOpen(true);
 
+    // 1440px WebP 的 SVG 光栅化和编码可能占用一帧以上。等 400ms 渐显结束后
+    // 再刷新当前快照，避免首次打开时与 opacity / backdrop-filter 合成抢主线程。
     if (graphRef.current && lastInputRef.current) {
-      persistSnapshot({
-        id: Snapshots.hashInput(lastInputRef.current),
-        inputText: lastInputRef.current,
-        isColored,
-        showComment,
-        hideFields,
-      }).then(async () => {
-        try {
-          const fresh = await Snapshots.getAll();
-          setHistoryItems(sortByUpdated(fresh));
-        } catch (_) {}
-      });
+      if (historyRefreshTimerRef.current !== null) {
+        window.clearTimeout(historyRefreshTimerRef.current);
+      }
+      const reduceMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      historyRefreshTimerRef.current = window.setTimeout(
+        async () => {
+          historyRefreshTimerRef.current = null;
+          const input = lastInputRef.current;
+          if (!graphRef.current || !input) return;
+          const id = Snapshots.hashInput(input);
+          await persistCurrentSnapshot();
+          // 只取刚更新的这一条做局部替换，不再全量重读（getAll 会把所有
+          // 缩略图一起读进内存，开一次面板读两遍很浪费）。
+          try {
+            const fresh = await Snapshots.get(id);
+            if (!fresh || isInitialSampleInput(fresh.inputText)) return;
+            setHistoryItems((prev) =>
+              sortByUpdated([fresh, ...prev.filter((x) => x.id !== fresh.id)]),
+            );
+          } catch (_) {}
+        },
+        reduceMotion ? 0 : 420,
+      );
     }
   };
 
@@ -276,6 +305,27 @@ const App = () => {
     setFontScale(FONT_SCALE_MIN + pct * FONT_SCALE_RANGE);
   };
 
+  // setFontScale 每次调用都会全图重算尺寸并 refresh；120Hz 指针下按事件频率
+  // 执行必然掉帧。这里把 pointermove 合并成每帧最多一次。
+  const fontSliderFrameRef = useRef<number | null>(null);
+  const fontSliderPendingRef = useRef<{ x: number; y: number; el: HTMLDivElement } | null>(null);
+  const scheduleFontScaleFromPointer = (clientX: number, clientY: number, el: HTMLDivElement) => {
+    fontSliderPendingRef.current = { x: clientX, y: clientY, el };
+    if (fontSliderFrameRef.current !== null) return;
+    fontSliderFrameRef.current = requestAnimationFrame(() => {
+      fontSliderFrameRef.current = null;
+      const pending = fontSliderPendingRef.current;
+      fontSliderPendingRef.current = null;
+      if (pending) updateFontScaleFromPointer(pending.x, pending.y, pending.el);
+    });
+  };
+  useEffect(
+    () => () => {
+      if (fontSliderFrameRef.current !== null) cancelAnimationFrame(fontSliderFrameRef.current);
+    },
+    [],
+  );
+
   const handleFontSliderPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -286,26 +336,7 @@ const App = () => {
   const handleFontSliderPointerMove = (e: PointerEvent<HTMLDivElement>) => {
     if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
     e.preventDefault();
-    updateFontScaleFromPointer(e.clientX, e.clientY, e.currentTarget);
-  };
-
-  const handleFontSliderMouseDown = (e: ReactMouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const slider = e.currentTarget;
-    updateFontScaleFromPointer(e.clientX, e.clientY, slider);
-
-    const handleMove = (moveEvent: globalThis.MouseEvent) => {
-      moveEvent.preventDefault();
-      updateFontScaleFromPointer(moveEvent.clientX, moveEvent.clientY, slider);
-    };
-    const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    scheduleFontScaleFromPointer(e.clientX, e.clientY, e.currentTarget);
   };
 
   const handleFontSliderKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -343,6 +374,15 @@ const App = () => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [historyOpen]);
+
+  useEffect(
+    () => () => {
+      if (historyRefreshTimerRef.current !== null) {
+        window.clearTimeout(historyRefreshTimerRef.current);
+      }
+    },
+    [],
+  );
 
   // 历史面板开着时给 body 加标记，CSS 据此把右上角的语言胶囊隐去
   // —— 它的 z-index 比覆盖层高，否则会浮在卡片轨道之上。
@@ -422,14 +462,10 @@ const App = () => {
       const d = new Date(ts);
       const diff = Date.now() - ts;
       const min = Math.floor(diff / 60000);
-      if (min < 1) return lang === "zh" ? "刚刚" : "just now";
-      if (min < 60) {
-        return lang === "zh" ? `${min} 分钟前` : `${min} min ago`;
-      }
+      if (min < 1) return t.timeJustNow;
+      if (min < 60) return t.timeMinAgo.replace("{n}", String(min));
       const hr = Math.floor(min / 60);
-      if (hr < 24) {
-        return lang === "zh" ? `${hr} 小时前` : `${hr} hr ago`;
-      }
+      if (hr < 24) return t.timeHrAgo.replace("{n}", String(hr));
       return d.toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
         month: "short",
         day: "numeric",
@@ -440,6 +476,31 @@ const App = () => {
       return "";
     }
   };
+
+  // HistoryOverlay 是 memo 组件；通过 ref + useCallback 提供恒定引用的回调，
+  // 让 App 的高频 re-render（如字号滑块拖动）不再连带整个卡片轨道重渲。
+  const historyCbRef = useRef({
+    close: closeHistory,
+    restore: handleRestore,
+    remove: deleteSnapshot,
+    format: formatTimestamp,
+  });
+  historyCbRef.current = {
+    close: closeHistory,
+    restore: handleRestore,
+    remove: deleteSnapshot,
+    format: formatTimestamp,
+  };
+  const onHistoryClose = useCallback(() => historyCbRef.current.close(), []);
+  const onHistoryRestore = useCallback(
+    (snap: SnapshotRecord) => historyCbRef.current.restore(snap),
+    [],
+  );
+  const onHistoryDelete = useCallback((id: string) => historyCbRef.current.remove(id), []);
+  const onHistoryFormatTimestamp = useCallback(
+    (ts: number | undefined) => historyCbRef.current.format(ts),
+    [],
+  );
 
   const fontSliderPct = ((fontScale - FONT_SCALE_MIN) / FONT_SCALE_RANGE) * 100;
 
@@ -520,14 +581,14 @@ const App = () => {
 
   return (
     <>
-      <div className="skill-install-pill" aria-label="Install sql2er Agent Skill">
+      <div className="skill-install-pill" aria-label={t.ariaInstallSkill}>
         <code>{SKILL_INSTALL_COMMAND}</code>
         <span className="skill-install-copy-cap">
           <button
             type="button"
             className="skill-install-copy"
-            aria-label={skillCommandCopied ? "Copied install command" : "Copy install command"}
-            title={skillCommandCopied ? "Copied" : "Copy"}
+            aria-label={skillCommandCopied ? t.ariaCopiedInstall : t.ariaCopyInstall}
+            title={skillCommandCopied ? t.tipCopied : t.tipCopy}
             onClick={handleCopySkillInstallCommand}
           >
             {skillCommandCopied ? (
@@ -632,6 +693,8 @@ const App = () => {
                     onClick={onExportBtnClick}
                     onKeyDown={onExportBtnKey}
                     aria-label={t.btnExportLabel}
+                    aria-haspopup="menu"
+                    aria-expanded={exportState === "open"}
                   >
                     <div
                       className="export-progress"
@@ -669,18 +732,20 @@ const App = () => {
 
                     <div
                       className={`export-view export-view-open${exportView === "open" ? " is-on" : ""}`}
+                      role="menu"
                     >
-                      <div className="export-opt" data-fmt="PNG">
-                        <span className="export-opt-label">PNG</span>
-                      </div>
-                      <div className="export-sep" />
-                      <div className="export-opt" data-fmt="XML">
-                        <span className="export-opt-label">XML</span>
-                      </div>
-                      <div className="export-sep" />
-                      <div className="export-opt" data-fmt="SVG">
-                        <span className="export-opt-label">SVG</span>
-                      </div>
+                      {(["PNG", "XML", "SVG"] as const).map((fmt, i, arr) => (
+                        <Fragment key={fmt}>
+                          <div
+                            className={`export-opt${kbActiveFmt === fmt ? " is-kbd-active" : ""}`}
+                            data-fmt={fmt}
+                            role="menuitem"
+                          >
+                            <span className="export-opt-label">{fmt}</span>
+                          </div>
+                          {i < arr.length - 1 && <div className="export-sep" />}
+                        </Fragment>
+                      ))}
                       <div className="export-sep" />
                       <div
                         className="export-cancel"
@@ -688,7 +753,8 @@ const App = () => {
                           e.stopPropagation();
                           toExportIdle();
                         }}
-                        aria-label="Cancel"
+                        role="menuitem"
+                        aria-label={t.ariaCancel}
                       >
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
@@ -709,6 +775,7 @@ const App = () => {
 
                     <div
                       className={`export-view export-view-loading${exportView === "loading" ? " is-on" : ""}`}
+                      aria-live="polite"
                     >
                       <svg
                         className="export-spinner"
@@ -729,6 +796,7 @@ const App = () => {
 
                     <div
                       className={`export-view export-view-success${exportView === "success" ? " is-on" : ""}`}
+                      aria-live="polite"
                     >
                       <svg
                         className="check-icon"
@@ -792,44 +860,65 @@ const App = () => {
                 className={`diagram-container ${showBackground ? "" : "no-grid"}`}
                 style={{ border: "none", borderRadius: 0 }}
               >
-                <div
+                <button
+                  type="button"
                   className="background-toggle"
                   onClick={handleToggleBackground}
                   title={showBackground ? t.tipHideBg : t.tipShowBg}
+                  aria-label={showBackground ? t.tipHideBg : t.tipShowBg}
+                  aria-pressed={!showBackground}
                 >
                   {showBackground ? <EyeIcon /> : <EyeSlashIcon />}
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`colorize-toggle ${isColored ? "active" : ""}`}
                   onClick={() => setIsColored(!isColored)}
                   title={isColored ? t.tipColorOff : t.tipColorOn}
+                  aria-label={isColored ? t.tipColorOff : t.tipColorOn}
+                  aria-pressed={isColored}
                 >
                   <PaletteIcon />
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`attrs-toggle ${hideFields ? "active" : ""}`}
                   onClick={() => setHideFields(!hideFields)}
                   title={hideFields ? t.tipShowAttrs : t.tipHideAttrs}
+                  aria-label={hideFields ? t.tipShowAttrs : t.tipHideAttrs}
+                  aria-pressed={hideFields}
                 >
                   <ListUlIcon />
-                </div>
-                <div className="history-toggle" onClick={openHistory} title={t.tipHistory}>
+                </button>
+                <button
+                  type="button"
+                  className="history-toggle"
+                  onClick={openHistory}
+                  title={t.tipHistory}
+                  aria-label={t.tipHistory}
+                >
                   <ClockRotateLeftIcon />
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`force-toggle ${forceOn ? "active" : ""}`}
                   onClick={() => setForceOn(!forceOn)}
                   title={forceOn ? t.tipForceOff : t.tipForceOn}
+                  aria-label={forceOn ? t.tipForceOff : t.tipForceOn}
+                  aria-pressed={forceOn}
                 >
                   <CircleNodesIcon />
-                </div>
-                <div
+                </button>
+                <button
+                  type="button"
                   className={`avoid-toggle ${autoAvoid ? "active" : ""}`}
                   onClick={() => setAutoAvoid(!autoAvoid)}
                   title={autoAvoid ? t.tipAutoAvoidOff : t.tipAutoAvoidOn}
+                  aria-label={autoAvoid ? t.tipAutoAvoidOff : t.tipAutoAvoidOn}
+                  aria-pressed={autoAvoid}
                 >
                   <ArrowsUpDownLeftRightIcon />
-                </div>
+                </button>
                 <div
                   className="font-size-slider"
                   title={t.tipFontSize}
@@ -846,7 +935,6 @@ const App = () => {
                   }
                   onPointerDown={handleFontSliderPointerDown}
                   onPointerMove={handleFontSliderPointerMove}
-                  onMouseDown={handleFontSliderMouseDown}
                   onKeyDown={handleFontSliderKeyDown}
                 >
                   <span className="font-size-slider-mark font-size-slider-mark-large">A</span>
@@ -875,7 +963,7 @@ const App = () => {
                     <button
                       type="button"
                       className="parser-warning-close"
-                      aria-label={lang === "zh" ? "关闭解析警告" : "Dismiss parser warnings"}
+                      aria-label={t.warnDismiss}
                       onClick={dismissParserWarnings}
                     >
                       <svg
@@ -891,9 +979,7 @@ const App = () => {
                         <line x1="6" x2="18" y1="6" y2="18" />
                       </svg>
                     </button>
-                    <div className="parser-warning-title">
-                      {lang === "zh" ? "解析警告" : "Parser warnings"}
-                    </div>
+                    <div className="parser-warning-title">{t.warnTitle}</div>
                     <ul className="parser-warning-list">
                       {parserWarnings.slice(0, 4).map((warning, index) => (
                         <li key={`${warning.code}-${warning.line ?? "x"}-${index}`}>
@@ -903,9 +989,7 @@ const App = () => {
                     </ul>
                     {parserWarnings.length > 4 && (
                       <div className="parser-warning-more">
-                        {lang === "zh"
-                          ? `还有 ${parserWarnings.length - 4} 条`
-                          : `${parserWarnings.length - 4} more`}
+                        {t.warnMore.replace("{n}", String(parserWarnings.length - 4))}
                       </div>
                     )}
                   </div>
@@ -927,10 +1011,10 @@ const App = () => {
         open={historyOpen}
         items={historyItems}
         t={t}
-        onClose={closeHistory}
-        onRestore={handleRestore}
-        onDelete={deleteSnapshot}
-        formatTimestamp={formatTimestamp}
+        onClose={onHistoryClose}
+        onRestore={onHistoryRestore}
+        onDelete={onHistoryDelete}
+        formatTimestamp={onHistoryFormatTimestamp}
       />
     </>
   );

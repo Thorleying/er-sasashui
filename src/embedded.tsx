@@ -30,4 +30,6 @@ if (!rootEl) {
 }
 
 document.body.classList.add("embedded-body");
-createRoot(rootEl).render(<EmbeddedApp state={readEmbeddedState()} lang={readEmbeddedConfig().lang} />);
+createRoot(rootEl).render(
+  <EmbeddedApp state={readEmbeddedState()} lang={readEmbeddedConfig().lang} />,
+);

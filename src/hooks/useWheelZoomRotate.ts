@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 import type { GraphLike } from "../types";
 import type { HistoryManager } from "../history";
@@ -168,6 +168,20 @@ export function attachWheelZoomRotate({
     if (rafId === null) rafId = requestAnimationFrame(tick);
   };
 
+  // 触控板双指捏合会派发 ctrlKey === true 的 wheel 事件（浏览器约定），
+  // 仅凭 e.ctrlKey 无法区分"按住 Ctrl 滚动"与"捏合缩放"。这里追踪物理
+  // Ctrl 键状态：只有真正按下 Ctrl 时才进入旋转分支，捏合走缩放。
+  let physicalCtrlDown = false;
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Control") physicalCtrlDown = true;
+  };
+  const onKeyUp = (e: KeyboardEvent) => {
+    if (e.key === "Control") physicalCtrlDown = false;
+  };
+  const onWindowBlur = () => {
+    physicalCtrlDown = false;
+  };
+
   const onWheel = (e: WheelEvent) => {
     const graph = graphRef.current;
     if (!graph || graph.destroyed) return;
@@ -175,7 +189,7 @@ export function attachWheelZoomRotate({
     e.preventDefault();
     e.stopPropagation();
 
-    if (e.ctrlKey) {
+    if (e.ctrlKey && physicalCtrlDown) {
       if (graph.getNodes().length === 0) return;
       if (rotationGraph && rotationGraph !== graph) {
         clearRotation();
@@ -218,12 +232,19 @@ export function attachWheelZoomRotate({
     ensureRaf();
   };
 
+  const win = typeof window !== "undefined" ? window : null;
   container.addEventListener("wheel", onWheel, {
     capture: true,
     passive: false,
   });
+  win?.addEventListener("keydown", onKeyDown);
+  win?.addEventListener("keyup", onKeyUp);
+  win?.addEventListener("blur", onWindowBlur);
   return () => {
     container.removeEventListener("wheel", onWheel, { capture: true });
+    win?.removeEventListener("keydown", onKeyDown);
+    win?.removeEventListener("keyup", onKeyUp);
+    win?.removeEventListener("blur", onWindowBlur);
     if (rafId !== null) cancelAnimationFrame(rafId);
     clearRotation();
     clearZoom();
@@ -232,9 +253,20 @@ export function attachWheelZoomRotate({
 }
 
 export function useWheelZoomRotate({ containerRef, graphRef, historyRef, onAfterChange }: Options) {
+  // onAfterChange 存进 ref：调用方往往传内联箭头函数，若把它放进 effect
+  // 依赖，App 每次 re-render 都会拆掉监听并 cancel 进行中的缩放/旋转缓动
+  // （表现为打字/弹 toast 时动画戛然而止）。effect 只依赖稳定的 ref。
+  const onAfterChangeRef = useRef(onAfterChange);
+  onAfterChangeRef.current = onAfterChange;
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    return attachWheelZoomRotate({ container, graphRef, historyRef, onAfterChange });
-  }, [containerRef, graphRef, historyRef, onAfterChange]);
+    return attachWheelZoomRotate({
+      container,
+      graphRef,
+      historyRef,
+      onAfterChange: () => onAfterChangeRef.current?.(),
+    });
+  }, [containerRef, graphRef, historyRef]);
 }

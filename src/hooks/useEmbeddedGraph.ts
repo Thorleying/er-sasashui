@@ -91,6 +91,7 @@ export interface UseEmbeddedGraphResult {
   setForceOn: (next: boolean) => void;
   setAutoAvoid: (next: boolean) => void;
   fitView: () => void;
+  settleAfterRotation: () => void;
   currentState: () => EmbeddedGraphState;
 }
 
@@ -487,6 +488,7 @@ export function useEmbeddedGraph(initialState: EmbeddedGraphState): UseEmbeddedG
     setForceOn,
     setAutoAvoid,
     fitView,
+    settleAfterRotation: handleAfterGraphChange,
     currentState,
   };
 }
