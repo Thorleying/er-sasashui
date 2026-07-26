@@ -914,6 +914,7 @@ section {
 }
 .fig img {
   width: 100%;
+  height: auto;
   display: block;
   background: #fff;
 }
