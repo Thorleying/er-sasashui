@@ -4,6 +4,25 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SQL/DBML2ER</title>
+    <!-- 同步主题脚本：与 index.html 相同，任何 CSS / JS 之前执行，
+         应用落地页选定的主题（localStorage["sql2er-theme"]），
+         无记录则跟随系统偏好，避免暗色用户白屏闪烁。 -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("sql2er-theme");
+          if (t !== "light" && t !== "dark") {
+            t =
+              window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "dark"
+                : "light";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          /* localStorage 不可用时按系统偏好走 CSS 兜底 */
+        }
+      })();
+    </script>
   </head>
 
   <body>
@@ -55,6 +74,12 @@
       </div>
 
       <div id="root"></div>
+      <noscript>
+        <p style="text-align: center; padding: 24px 16px">
+          本工具完全在浏览器内运行，需要启用 JavaScript。<br />
+          This tool runs entirely in your browser and requires JavaScript.
+        </p>
+      </noscript>
     </div>
 
     <script type="module" src="/src/main.tsx"></script>

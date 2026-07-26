@@ -127,9 +127,25 @@
   --duration-slow: 400ms;
 }
 
-/* 深色模式 */
+/* 深色模式
+   显式 data-theme 永远优先于系统偏好：
+   - :root[data-theme="dark"]：用户显式选暗色（任何系统偏好下都生效）
+   - 媒体查询里排除 [data-theme="light"]：系统暗色时，只要用户
+     没有显式选亮色就跟随系统 */
+:root[data-theme="dark"] {
+  --color-bg-base: #1a1916;
+  --color-bg-raised: #222119;
+  --color-bg-overlay: #2c2b26;
+  --color-bg-inverted: #f5f3ec;
+  --color-text-primary: #eae7dc;
+  --color-text-secondary: #9d9a91;
+  --color-text-muted: #5c5a54;
+  --color-text-inverted: #141413;
+  --color-border-default: #3a3830;
+  --color-border-subtle: #2e2d27;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-bg-base: #1a1916;
     --color-bg-raised: #222119;
     --color-bg-overlay: #2c2b26;
@@ -325,8 +341,11 @@ textarea {
   --color-numeric: var(--color-accent-blue);
 }
 
+:root[data-theme="dark"] {
+  --color-bg-sidebar: #1e1d19;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --color-bg-sidebar: #1e1d19;
   }
 }
