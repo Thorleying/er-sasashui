@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  generateChenModelData,
-  estimateAttributeHalfSize,
-  getTextWidth,
-} from "../builder";
+import { generateChenModelData, estimateAttributeHalfSize, getTextWidth } from "../builder";
 import type { ParsedRelationship, ParsedTable } from "../types";
 
 const usersTable: ParsedTable = {
@@ -23,9 +19,7 @@ const ordersTable: ParsedTable = {
     { name: "user_id", type: "int", isPrimaryKey: false },
   ],
   primaryKeys: ["id"],
-  foreignKeys: [
-    { column: "user_id", referencedTable: "users", referencedColumn: "id" },
-  ],
+  foreignKeys: [{ column: "user_id", referencedTable: "users", referencedColumn: "id" }],
 };
 
 describe("generateChenModelData", () => {
@@ -44,26 +38,20 @@ describe("generateChenModelData", () => {
   it("connects every attribute back to its parent entity", () => {
     const data = generateChenModelData([usersTable], []);
     const entityId = data.nodes.find((n) => n.nodeType === "entity")!.id;
-    const attrEdges = data.edges.filter(
-      (e) => e.edgeType === "entity-attribute",
-    );
+    const attrEdges = data.edges.filter((e) => e.edgeType === "entity-attribute");
     expect(attrEdges).toHaveLength(2);
     expect(attrEdges.every((e) => e.source === entityId)).toBe(true);
   });
 
   it("renders one diamond + two edges (N / 1) for each relationship", () => {
-    const rels: ParsedRelationship[] = [
-      { from: "orders", to: "users", label: "user_id" },
-    ];
+    const rels: ParsedRelationship[] = [{ from: "orders", to: "users", label: "user_id" }];
     const data = generateChenModelData([usersTable, ordersTable], rels);
     const diamonds = data.nodes.filter((n) => n.nodeType === "relationship");
     expect(diamonds).toHaveLength(1);
     expect(diamonds[0].label).toBe("user_id");
 
     const erEdges = data.edges.filter(
-      (e) =>
-        e.edgeType === "entity-relationship" ||
-        e.edgeType === "relationship-entity",
+      (e) => e.edgeType === "entity-relationship" || e.edgeType === "relationship-entity",
     );
     expect(erEdges).toHaveLength(2);
     const labels = erEdges.map((e) => e.label).sort();
@@ -71,27 +59,19 @@ describe("generateChenModelData", () => {
   });
 
   it("creates a dashed placeholder entity for refs to unknown tables", () => {
-    const rels: ParsedRelationship[] = [
-      { from: "orders", to: "missing", label: "x_id" },
-    ];
+    const rels: ParsedRelationship[] = [{ from: "orders", to: "missing", label: "x_id" }];
     const data = generateChenModelData([ordersTable], rels);
-    const placeholder = data.nodes.find(
-      (n) => n.nodeType === "entity" && n.isPlaceholder,
-    );
+    const placeholder = data.nodes.find((n) => n.nodeType === "entity" && n.isPlaceholder);
     expect(placeholder).toBeDefined();
     expect(placeholder!.label).toBe("missing");
     expect(placeholder!.style?.lineDash).toEqual([4, 4]);
   });
 
   it("marks self-loop relationships with self-loop-arc edge type", () => {
-    const selfRel: ParsedRelationship[] = [
-      { from: "users", to: "users", label: "manager_id" },
-    ];
+    const selfRel: ParsedRelationship[] = [{ from: "users", to: "users", label: "manager_id" }];
     const data = generateChenModelData([usersTable], selfRel);
     const erEdges = data.edges.filter(
-      (e) =>
-        e.edgeType === "entity-relationship" ||
-        e.edgeType === "relationship-entity",
+      (e) => e.edgeType === "entity-relationship" || e.edgeType === "relationship-entity",
     );
     expect(erEdges).toHaveLength(2);
     expect(erEdges.every((e) => e.type === "self-loop-arc")).toBe(true);
@@ -100,12 +80,8 @@ describe("generateChenModelData", () => {
 
   it("hideFields=true skips attribute nodes & their edges", () => {
     const data = generateChenModelData([usersTable], [], true, "name", true);
-    expect(data.nodes.filter((n) => n.nodeType === "attribute")).toHaveLength(
-      0,
-    );
-    expect(
-      data.edges.filter((e) => e.edgeType === "entity-attribute"),
-    ).toHaveLength(0);
+    expect(data.nodes.filter((n) => n.nodeType === "attribute")).toHaveLength(0);
+    expect(data.edges.filter((e) => e.edgeType === "entity-attribute")).toHaveLength(0);
   });
 
   it("isColored=false uses black/white styling", () => {
@@ -131,6 +107,41 @@ describe("generateChenModelData", () => {
     expect(attrs[0].label).toBe("user id");
     expect(attrs[1].label).toBe("name");
   });
+
+  it("creates a placeholder entity for a missing rel.from so no edge loses its source", () => {
+    const rels: ParsedRelationship[] = [{ from: "ghost", to: "users", label: "uid" }];
+    const data = generateChenModelData([usersTable], rels);
+    const placeholder = data.nodes.find((n) => n.nodeType === "entity" && n.isPlaceholder);
+    expect(placeholder).toBeDefined();
+    expect(placeholder!.label).toBe("ghost");
+    const erEdges = data.edges.filter(
+      (e) => e.edgeType === "entity-relationship" || e.edgeType === "relationship-entity",
+    );
+    expect(erEdges).toHaveLength(2);
+    expect(erEdges.every((e) => e.source && e.target)).toBe(true);
+  });
+
+  it("hides every column of a composite FK ('a, b') instead of none", () => {
+    const compositeTable: ParsedTable = {
+      name: "line_items",
+      columns: [
+        { name: "order_id", type: "int", isPrimaryKey: false },
+        { name: "product_id", type: "int", isPrimaryKey: false },
+        { name: "qty", type: "int", isPrimaryKey: false },
+      ],
+      primaryKeys: [],
+      foreignKeys: [
+        {
+          column: "order_id, product_id",
+          referencedTable: "orders",
+          referencedColumn: "id, pid",
+        },
+      ],
+    };
+    const data = generateChenModelData([compositeTable], []);
+    const attrs = data.nodes.filter((n) => n.nodeType === "attribute");
+    expect(attrs.map((a) => a.label)).toEqual(["qty"]);
+  });
 });
 
 describe("getTextWidth", () => {
@@ -140,6 +151,22 @@ describe("getTextWidth", () => {
     expect(getTextWidth("中", fontSize)).toBeCloseTo(10, 5);
     expect(getTextWidth("a中", fontSize)).toBeCloseTo(16, 5);
     expect(getTextWidth("", fontSize)).toBe(0);
+  });
+
+  it("memoized results stay correct across repeated calls and font sizes", () => {
+    // 同文本同字号重复调用（命中缓存）结果一致
+    expect(getTextWidth("a中", 10)).toBeCloseTo(getTextWidth("a中", 10), 5);
+    // 同文本不同字号是不同的缓存 key，不能串味
+    expect(getTextWidth("a中", 20)).toBeCloseTo(32, 5);
+    expect(getTextWidth("a中", 10)).toBeCloseTo(16, 5);
+  });
+
+  it("does not grow without bound for many distinct labels", () => {
+    // 压入远超上限的不同 key，只要不抛错且结果仍正确即可
+    for (let i = 0; i < 5000; i++) {
+      getTextWidth(`label_${i}`, 12);
+    }
+    expect(getTextWidth("ab", 10)).toBeCloseTo(12, 5);
   });
 });
 
@@ -152,9 +179,7 @@ describe("estimateAttributeHalfSize", () => {
 
   it("grows for longer labels", () => {
     const small = estimateAttributeHalfSize("a");
-    const large = estimateAttributeHalfSize(
-      "a_very_long_attribute_label_indeed",
-    );
+    const large = estimateAttributeHalfSize("a_very_long_attribute_label_indeed");
     expect(large.halfW).toBeGreaterThan(small.halfW);
   });
 });

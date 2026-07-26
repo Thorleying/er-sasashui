@@ -16,7 +16,7 @@ import type {
   ParsedColumn,
   ParsedRelationship,
   ParsedTable,
-} from './types';
+} from "./types";
 
 /**
  * 根据 labelMode 与 (name, comment) 计算应显示的标签
@@ -30,21 +30,21 @@ const pickLabel = (
   comment: string | undefined,
   labelMode: AttributeLabelMode | string,
 ): string => {
-  const n = name || '';
-  const c = comment || '';
-  if (labelMode === 'name') return n;
-  if (labelMode === 'comment') return c || n;
+  const n = name || "";
+  const c = comment || "";
+  if (labelMode === "name") return n;
+  if (labelMode === "comment") return c || n;
   return c || n;
 };
 
 const resolveAttrLabel = (column: ParsedColumn, labelMode: AttributeLabelMode | string): string =>
-  pickLabel(column.name || '', column.comment, labelMode);
+  pickLabel(column.name || "", column.comment, labelMode);
 
 const generateChenModelData = (
   tables: ParsedTable[],
   relationships: ParsedRelationship[],
   isColored: boolean = true,
-  labelMode: AttributeLabelMode | string = 'name',
+  labelMode: AttributeLabelMode | string = "name",
   hideFields: boolean = false,
 ): ChenModelData => {
   const nodes: ERNodeModel[] = [];
@@ -62,32 +62,36 @@ const generateChenModelData = (
     const entityLabel = pickLabel(table.name, table.comment, labelMode);
     nodes.push({
       id: entityId,
-      type: 'entity',
+      type: "entity",
       label: entityLabel,
       // 在节点上保留两份候选标签，方便"显示注释"开关原地切换。
       nameLabel: table.name,
       commentLabel: table.comment || table.name,
       // 移除固定的x,y坐标，让布局算法自动处理
       style: {
-        fill: '#ffffff',
-        stroke: isColored ? '#595959' : '#000000',
+        fill: "#ffffff",
+        stroke: isColored ? "#595959" : "#000000",
         lineWidth: 2,
       },
       labelCfg: {
         style: {
-          fill: '#000000',
-          fontWeight: 'bold',
+          fill: "#000000",
+          fontWeight: "bold",
         },
       },
       // 添加节点分类信息，用于布局算法
-      nodeType: 'entity',
+      nodeType: "entity",
     });
 
     if (!hideFields) {
       // 纯 FK 列（不同时是 PK 的）在 Chen 模型里由关系菱形表达，不再画成属性椭圆，
       // 否则会出现菱形和椭圆同时挂在实体上、且文本相同（FK 列 COMMENT 也是关系标签来源）。
+      // 复合 FK 的 column 是 "a, b" 拼接串，需按逗号拆开逐列加入，
+      // 否则复合 FK 列会既有椭圆又有菱形，与单列 FK 行为不一致。
       const fkOnlyColumns = new Set(
-        table.foreignKeys.map((fk) => fk.column).filter((col) => !table.primaryKeys.includes(col)),
+        table.foreignKeys
+          .flatMap((fk) => fk.column.split(",").map((s) => s.trim()))
+          .filter((col) => col && !table.primaryKeys.includes(col)),
       );
 
       // Create attribute nodes (ellipses) for each column
@@ -99,24 +103,24 @@ const generateChenModelData = (
 
         nodes.push({
           id: attributeId,
-          type: 'attribute',
+          type: "attribute",
           label: attrLabel,
           nameLabel: column.name,
           commentLabel: column.comment || column.name,
           // 移除固定位置
-          keyType: isPrimaryKey ? 'pk' : 'normal',
+          keyType: isPrimaryKey ? "pk" : "normal",
           style: {
-            fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
-            stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
+            fill: isColored ? (isPrimaryKey ? "#f6ffed" : "#fffbe6") : "#ffffff",
+            stroke: isColored ? (isPrimaryKey ? "#52c41a" : "#faad14") : "#000000",
             lineWidth: isPrimaryKey ? 2 : 1,
           },
           labelCfg: {
             style: {
-              fill: '#000000',
-              fontWeight: isPrimaryKey ? 'bold' : 'normal',
+              fill: "#000000",
+              fontWeight: isPrimaryKey ? "bold" : "normal",
             },
           },
-          nodeType: 'attribute',
+          nodeType: "attribute",
           parentEntity: entityId, // 标记父实体
         });
 
@@ -126,44 +130,49 @@ const generateChenModelData = (
           source: entityId,
           target: attributeId,
           style: {
-            stroke: '#000000',
+            stroke: "#000000",
           },
-          edgeType: 'entity-attribute',
+          edgeType: "entity-attribute",
         });
       });
     }
   });
 
-  // Create placeholder entities for referenced tables not in the input SQL
-  relationships.forEach((rel) => {
-    if (!entityMap.has(rel.to)) {
-      const placeholderIndex = nodes.filter((n) => n.nodeType === 'entity').length;
-      const entityId = `entity-${rel.to}-${placeholderIndex}`;
-      entityMap.set(rel.to, entityId);
+  // Create placeholder entities for referenced tables not in the input SQL.
+  // 关系两端（from / to）都可能指向缺失的表；若不为 from 端补占位实体，
+  // 会产出 source: undefined 的悬空边。
+  const ensurePlaceholderEntity = (name: string): void => {
+    if (entityMap.has(name)) return;
+    const placeholderIndex = nodes.filter((n) => n.nodeType === "entity").length;
+    const entityId = `entity-${name}-${placeholderIndex}`;
+    entityMap.set(name, entityId);
 
-      nodes.push({
-        id: entityId,
-        type: 'entity',
-        label: rel.to,
-        nameLabel: rel.to,
-        // 占位实体没有解析到的表注释，commentLabel 兜底回原名
-        commentLabel: rel.to,
+    nodes.push({
+      id: entityId,
+      type: "entity",
+      label: name,
+      nameLabel: name,
+      // 占位实体没有解析到的表注释，commentLabel 兜底回原名
+      commentLabel: name,
+      style: {
+        fill: "#ffffff",
+        stroke: isColored ? "#595959" : "#000000",
+        lineWidth: 2,
+        lineDash: [4, 4],
+      },
+      labelCfg: {
         style: {
-          fill: '#ffffff',
-          stroke: isColored ? '#595959' : '#000000',
-          lineWidth: 2,
-          lineDash: [4, 4],
+          fill: isColored ? "#999999" : "#666666",
+          fontWeight: "bold",
         },
-        labelCfg: {
-          style: {
-            fill: isColored ? '#999999' : '#666666',
-            fontWeight: 'bold',
-          },
-        },
-        nodeType: 'entity',
-        isPlaceholder: true,
-      });
-    }
+      },
+      nodeType: "entity",
+      isPlaceholder: true,
+    });
+  };
+  relationships.forEach((rel) => {
+    ensurePlaceholderEntity(rel.to);
+    ensurePlaceholderEntity(rel.from);
   });
 
   // 根据 from 表 + FK 列名查找列注释，作为关系标签的注释回退源。
@@ -181,7 +190,7 @@ const generateChenModelData = (
     // 复合 FK label "a, b"：每段都查一遍，把首个有注释的拼回去就行了；
     // 多 FK 列同时有注释的情况罕见，简化处理。
     const cols = rel.label
-      .split(',')
+      .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     for (const c of cols) {
@@ -200,21 +209,21 @@ const generateChenModelData = (
     const relLabel = pickLabel(rel.label, relComment, labelMode);
     nodes.push({
       id: relationshipId,
-      type: 'relationship',
+      type: "relationship",
       label: relLabel,
       nameLabel: rel.label,
       commentLabel: relComment || rel.label,
       style: {
-        fill: isColored ? '#f9f0ff' : '#ffffff',
-        stroke: isColored ? '#722ed1' : '#000000',
+        fill: isColored ? "#f9f0ff" : "#ffffff",
+        stroke: isColored ? "#722ed1" : "#000000",
         lineWidth: 2,
       },
       labelCfg: {
         style: {
-          fill: '#000000',
+          fill: "#000000",
         },
       },
-      nodeType: 'relationship',
+      nodeType: "relationship",
       isSelfLoop,
     });
 
@@ -232,8 +241,8 @@ const generateChenModelData = (
 
     // 边标签来自解析器推断出的两端基数，缺省 N:1（DBML `>` / SQL FK 的隐含语义）。
     // 1:1（DBML `-`、或 FK 列为单列 PK / UNIQUE 的推断结果）会在两端都标 '1'。
-    const fromLabel = rel.fromCardinality ?? 'N';
-    const toLabel = rel.toCardinality ?? '1';
+    const fromLabel = rel.fromCardinality ?? "N";
+    const toLabel = rel.toCardinality ?? "1";
 
     // Connect source entity (the one with the FK, 'many' side) to relationship
     edges.push({
@@ -241,22 +250,22 @@ const generateChenModelData = (
       source: entityMap.get(rel.from),
       target: relationshipId,
       label: fromLabel,
-      type: isSelfLoop ? 'self-loop-arc' : undefined,
+      type: isSelfLoop ? "self-loop-arc" : undefined,
       curveOffset: isSelfLoop ? 22 : undefined,
       style: {
-        stroke: '#000000',
+        stroke: "#000000",
         lineWidth: 2,
       },
       labelCfg: {
         style: {
-          fill: '#000000',
+          fill: "#000000",
           background: {
-            fill: '#ffffff',
+            fill: "#ffffff",
             padding: [2, 4, 2, 4],
           },
         },
       },
-      edgeType: 'entity-relationship',
+      edgeType: "entity-relationship",
     });
 
     // Connect relationship to target entity (the one being referenced, 'one' side)
@@ -265,22 +274,22 @@ const generateChenModelData = (
       source: relationshipId,
       target: entityMap.get(rel.to),
       label: toLabel,
-      type: isSelfLoop ? 'self-loop-arc' : undefined,
+      type: isSelfLoop ? "self-loop-arc" : undefined,
       curveOffset: isSelfLoop ? 22 : undefined,
       style: {
-        stroke: '#000000',
+        stroke: "#000000",
         lineWidth: 2,
       },
       labelCfg: {
         style: {
-          fill: '#000000',
+          fill: "#000000",
           background: {
-            fill: '#ffffff',
+            fill: "#ffffff",
             padding: [2, 4, 2, 4],
           },
         },
       },
-      edgeType: 'relationship-entity',
+      edgeType: "relationship-entity",
     });
   });
 
@@ -297,7 +306,15 @@ const generateChenModelData = (
  * @param {number} fontSize - 字体大小
  * @returns {number} - 文本宽度
  */
+// 布局每帧会对同一批标签反复调用 getTextWidth，逐字符正则判宽是热点，
+// 这里做记忆化：以 `fontSize|text` 为 key 缓存结果，超过上限整体清空防止无限增长。
+const TEXT_WIDTH_CACHE_LIMIT = 4096;
+const textWidthCache = new Map<string, number>();
+
 const getTextWidth = (text: string, fontSize: number): number => {
+  const cacheKey = `${fontSize}|${text}`;
+  const cached = textWidthCache.get(cacheKey);
+  if (cached !== undefined) return cached;
   let width = 0;
   for (let char of text) {
     // 中文字符宽度约等于字体大小，英文字符约为字体大小的0.6倍
@@ -307,13 +324,15 @@ const getTextWidth = (text: string, fontSize: number): number => {
       width += fontSize * 0.6;
     }
   }
+  if (textWidthCache.size >= TEXT_WIDTH_CACHE_LIMIT) textWidthCache.clear();
+  textWidthCache.set(cacheKey, width);
   return width;
 };
 
 const resolveLabelFontSize = (cfg: any, fallback: number): number => {
   const raw = cfg?.labelCfg?.style?.fontSize;
   const parsed =
-    typeof raw === 'number' ? raw : typeof raw === 'string' ? Number.parseFloat(raw) : NaN;
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseFloat(raw) : NaN;
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
@@ -400,7 +419,7 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 实体节点（矩形）
   const drawEntity = (cfg: any, group: any) => {
     const fontSize = resolveLabelFontSize(cfg, 18);
-    const { width, height } = measureEntitySize(cfg.label || '', fontSize);
+    const { width, height } = measureEntitySize(cfg.label || "", fontSize);
 
     const rectAttrs: {
       x: number;
@@ -419,8 +438,8 @@ const registerCustomNodes = (G6: G6Like): void => {
       y: -height / 2,
       width,
       height,
-      fill: cfg.style?.fill || '#fff',
-      stroke: cfg.style?.stroke || '#000',
+      fill: cfg.style?.fill || "#fff",
+      stroke: cfg.style?.stroke || "#000",
       lineWidth: cfg.style?.lineWidth || 2,
     };
     if (cfg.style?.lineDash) rectAttrs.lineDash = cfg.style.lineDash;
@@ -428,33 +447,33 @@ const registerCustomNodes = (G6: G6Like): void => {
     if (cfg.style?.shadowColor) rectAttrs.shadowColor = cfg.style.shadowColor;
     if (cfg.style?.shadowBlur !== undefined) rectAttrs.shadowBlur = cfg.style.shadowBlur;
 
-    const shape = group.addShape('rect', {
+    const shape = group.addShape("rect", {
       attrs: rectAttrs,
-      name: 'entity-shape',
+      name: "entity-shape",
     });
 
     if (cfg.label) {
-      group.addShape('text', {
+      group.addShape("text", {
         attrs: {
           x: 0,
           y: getEntityLabelTextY(fontSize),
           text: cfg.label,
           fontSize,
-          textAlign: 'center',
-          textBaseline: 'middle',
-          fill: cfg.labelCfg?.style?.fill || '#000',
-          fontWeight: cfg.labelCfg?.style?.fontWeight || 'bold',
-          fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+          textAlign: "center",
+          textBaseline: "middle",
+          fill: cfg.labelCfg?.style?.fill || "#000",
+          fontWeight: cfg.labelCfg?.style?.fontWeight || "bold",
+          fontStyle: cfg.labelCfg?.style?.fontStyle || "normal",
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         },
-        name: 'entity-text',
+        name: "entity-text",
         capture: false,
       });
     }
 
     return shape;
   };
-  G6.registerNode('entity', {
+  G6.registerNode("entity", {
     draw: drawEntity,
     // 三个写入路径会走这里：
     //   ① 双击节点编辑 label
@@ -467,50 +486,50 @@ const registerCustomNodes = (G6: G6Like): void => {
     update(cfg: any, node: any) {
       const group = node.getContainer();
       const fontSize = resolveLabelFontSize(cfg, 18);
-      const { width, height } = measureEntitySize(cfg.label || '', fontSize);
+      const { width, height } = measureEntitySize(cfg.label || "", fontSize);
 
-      const shape = group.find((e: any) => e.get('name') === 'entity-shape');
+      const shape = group.find((e: any) => e.get("name") === "entity-shape");
       if (shape) {
         const next: Record<string, unknown> = {
           x: -width / 2,
           y: -height / 2,
           width,
           height,
-          fill: cfg.style?.fill ?? shape.attr('fill'),
-          stroke: cfg.style?.stroke ?? shape.attr('stroke'),
-          lineWidth: cfg.style?.lineWidth ?? shape.attr('lineWidth'),
+          fill: cfg.style?.fill ?? shape.attr("fill"),
+          stroke: cfg.style?.stroke ?? shape.attr("stroke"),
+          lineWidth: cfg.style?.lineWidth ?? shape.attr("lineWidth"),
           lineDash: cfg.style?.lineDash || [0, 0],
           radius: cfg.style?.radius ?? 0,
-          shadowColor: cfg.style?.shadowColor ?? '',
+          shadowColor: cfg.style?.shadowColor ?? "",
           shadowBlur: cfg.style?.shadowBlur ?? 0,
         };
         shape.attr(next);
       }
 
-      let textShape = group.find((e: any) => e.get('name') === 'entity-text');
+      let textShape = group.find((e: any) => e.get("name") === "entity-text");
       if (cfg.label) {
         const labelAttrs: Record<string, unknown> = {
           text: cfg.label,
           y: getEntityLabelTextY(fontSize),
           fontSize,
-          fill: cfg.labelCfg?.style?.fill ?? '#000',
-          fontWeight: cfg.labelCfg?.style?.fontWeight ?? 'bold',
-          fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
+          fill: cfg.labelCfg?.style?.fill ?? "#000",
+          fontWeight: cfg.labelCfg?.style?.fontWeight ?? "bold",
+          fontStyle: cfg.labelCfg?.style?.fontStyle ?? "normal",
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         };
         if (textShape) {
           textShape.attr(labelAttrs);
         } else {
-          group.addShape('text', {
+          group.addShape("text", {
             attrs: {
               x: 0,
               y: getEntityLabelTextY(fontSize),
               fontSize,
-              textAlign: 'center',
-              textBaseline: 'middle',
+              textAlign: "center",
+              textBaseline: "middle",
               ...labelAttrs,
             },
-            name: 'entity-text',
+            name: "entity-text",
             capture: false,
           });
         }
@@ -523,109 +542,109 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 属性节点（椭圆）
   const drawAttribute = (cfg: any, group: any) => {
     const fontSize = resolveLabelFontSize(cfg, 15);
-    const text = cfg.label || '';
-    const isPrimaryKey = cfg.keyType === 'pk';
+    const text = cfg.label || "";
+    const isPrimaryKey = cfg.keyType === "pk";
     const { width, height } = measureAttributeSize(text, fontSize, isPrimaryKey);
 
-    const shape = group.addShape('ellipse', {
+    const shape = group.addShape("ellipse", {
       attrs: {
         x: 0,
         y: 0,
         rx: width / 2,
         ry: height / 2,
-        fill: cfg.style?.fill || '#fff',
-        stroke: cfg.style?.stroke || '#000',
+        fill: cfg.style?.fill || "#fff",
+        stroke: cfg.style?.stroke || "#000",
         lineWidth: cfg.style?.lineWidth || 1,
         lineDash: cfg.style?.lineDash,
         shadowColor: cfg.style?.shadowColor,
         shadowBlur: cfg.style?.shadowBlur,
       },
-      name: 'attribute-shape',
+      name: "attribute-shape",
     });
 
     if (cfg.label) {
-      group.addShape('text', {
+      group.addShape("text", {
         attrs: {
           x: 0,
           y: getAttributeLabelTextY(fontSize),
           text: cfg.label,
           fontSize,
-          textAlign: 'center',
-          textBaseline: 'middle',
-          fill: cfg.labelCfg?.style?.fill || '#000',
-          fontWeight: cfg.labelCfg?.style?.fontWeight || (isPrimaryKey ? 'bold' : 'normal'),
-          fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+          textAlign: "center",
+          textBaseline: "middle",
+          fill: cfg.labelCfg?.style?.fill || "#000",
+          fontWeight: cfg.labelCfg?.style?.fontWeight || (isPrimaryKey ? "bold" : "normal"),
+          fontStyle: cfg.labelCfg?.style?.fontStyle || "normal",
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         },
-        name: 'attribute-text',
+        name: "attribute-text",
         capture: false,
       });
 
       if (isPrimaryKey) {
         const underlineWidth = getTextWidth(text, fontSize);
-        group.addShape('line', {
+        group.addShape("line", {
           attrs: {
             x1: -underlineWidth / 2,
             y1: getAttributeUnderlineY(fontSize),
             x2: underlineWidth / 2,
             y2: getAttributeUnderlineY(fontSize),
-            stroke: cfg.labelCfg?.style?.fill || '#000',
+            stroke: cfg.labelCfg?.style?.fill || "#000",
             lineWidth: 1,
           },
-          name: 'attribute-underline',
+          name: "attribute-underline",
         });
       }
     }
 
     return shape;
   };
-  G6.registerNode('attribute', {
+  G6.registerNode("attribute", {
     draw: drawAttribute,
     update(cfg: any, node: any) {
       const group = node.getContainer();
       const fontSize = resolveLabelFontSize(cfg, 15);
-      const textStr = cfg.label || '';
-      const isPrimaryKey = cfg.keyType === 'pk';
+      const textStr = cfg.label || "";
+      const isPrimaryKey = cfg.keyType === "pk";
       const { width, height } = measureAttributeSize(textStr, fontSize, isPrimaryKey);
 
-      const shape = group.find((e: any) => e.get('name') === 'attribute-shape');
+      const shape = group.find((e: any) => e.get("name") === "attribute-shape");
       if (shape) {
         shape.attr({
           rx: width / 2,
           ry: height / 2,
-          fill: cfg.style?.fill ?? shape.attr('fill'),
-          stroke: cfg.style?.stroke ?? shape.attr('stroke'),
-          lineWidth: cfg.style?.lineWidth ?? shape.attr('lineWidth'),
+          fill: cfg.style?.fill ?? shape.attr("fill"),
+          stroke: cfg.style?.stroke ?? shape.attr("stroke"),
+          lineWidth: cfg.style?.lineWidth ?? shape.attr("lineWidth"),
           lineDash: cfg.style?.lineDash || [0, 0],
-          shadowColor: cfg.style?.shadowColor ?? '',
+          shadowColor: cfg.style?.shadowColor ?? "",
           shadowBlur: cfg.style?.shadowBlur ?? 0,
         });
       }
 
-      let textShape = group.find((e: any) => e.get('name') === 'attribute-text');
+      let textShape = group.find((e: any) => e.get("name") === "attribute-text");
       if (cfg.label) {
         const labelAttrs: Record<string, unknown> = {
           text: cfg.label,
           y: getAttributeLabelTextY(fontSize),
           fontSize,
-          fill: cfg.labelCfg?.style?.fill ?? '#000',
-          fontWeight: cfg.labelCfg?.style?.fontWeight ?? (isPrimaryKey ? 'bold' : 'normal'),
-          fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
+          fill: cfg.labelCfg?.style?.fill ?? "#000",
+          fontWeight: cfg.labelCfg?.style?.fontWeight ?? (isPrimaryKey ? "bold" : "normal"),
+          fontStyle: cfg.labelCfg?.style?.fontStyle ?? "normal",
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         };
         if (textShape) {
           textShape.attr(labelAttrs);
         } else {
-          group.addShape('text', {
+          group.addShape("text", {
             attrs: {
               x: 0,
               y: getAttributeLabelTextY(fontSize),
               fontSize,
-              textAlign: 'center',
-              textBaseline: 'middle',
+              textAlign: "center",
+              textBaseline: "middle",
               ...labelAttrs,
             },
-            name: 'attribute-text',
+            name: "attribute-text",
             capture: false,
           });
         }
@@ -634,7 +653,7 @@ const registerCustomNodes = (G6: G6Like): void => {
       }
 
       // 主键下划线随 keyType / label 变化增删；宽度也得跟新文本走。
-      const underline = group.find((e: any) => e.get('name') === 'attribute-underline');
+      const underline = group.find((e: any) => e.get("name") === "attribute-underline");
       if (isPrimaryKey && cfg.label) {
         const underlineWidth = getTextWidth(textStr, fontSize);
         if (underline) {
@@ -643,19 +662,19 @@ const registerCustomNodes = (G6: G6Like): void => {
             y1: getAttributeUnderlineY(fontSize),
             x2: underlineWidth / 2,
             y2: getAttributeUnderlineY(fontSize),
-            stroke: cfg.labelCfg?.style?.fill ?? '#000',
+            stroke: cfg.labelCfg?.style?.fill ?? "#000",
           });
         } else {
-          group.addShape('line', {
+          group.addShape("line", {
             attrs: {
               x1: -underlineWidth / 2,
               y1: getAttributeUnderlineY(fontSize),
               x2: underlineWidth / 2,
               y2: getAttributeUnderlineY(fontSize),
-              stroke: cfg.labelCfg?.style?.fill ?? '#000',
+              stroke: cfg.labelCfg?.style?.fill ?? "#000",
               lineWidth: 1,
             },
-            name: 'attribute-underline',
+            name: "attribute-underline",
           });
         }
       } else if (underline) {
@@ -667,11 +686,11 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 关系节点（菱形）
   const drawRelationship = (cfg: any, group: any) => {
     const fontSize = resolveLabelFontSize(cfg, 16);
-    const relSize = measureRelationshipSize(cfg.label || '', fontSize);
+    const relSize = measureRelationshipSize(cfg.label || "", fontSize);
     const halfWidth = relSize.width / 2;
     const halfHeight = relSize.height / 2;
 
-    const shape = group.addShape('polygon', {
+    const shape = group.addShape("polygon", {
       attrs: {
         points: [
           [0, -halfHeight],
@@ -679,47 +698,47 @@ const registerCustomNodes = (G6: G6Like): void => {
           [0, halfHeight],
           [-halfWidth, 0],
         ],
-        fill: cfg.style?.fill || '#fff',
-        stroke: cfg.style?.stroke || '#000',
+        fill: cfg.style?.fill || "#fff",
+        stroke: cfg.style?.stroke || "#000",
         lineWidth: cfg.style?.lineWidth || 2,
         lineDash: cfg.style?.lineDash,
         shadowColor: cfg.style?.shadowColor,
         shadowBlur: cfg.style?.shadowBlur,
       },
-      name: 'relationship-shape',
+      name: "relationship-shape",
     });
 
     if (cfg.label) {
-      group.addShape('text', {
+      group.addShape("text", {
         attrs: {
           x: 0,
           y: getRelationshipLabelTextY(fontSize),
           text: cfg.label,
           fontSize,
-          textAlign: 'center',
-          textBaseline: 'middle',
-          fill: cfg.labelCfg?.style?.fill || '#000',
-          fontWeight: cfg.labelCfg?.style?.fontWeight || 'normal',
-          fontStyle: cfg.labelCfg?.style?.fontStyle || 'normal',
+          textAlign: "center",
+          textBaseline: "middle",
+          fill: cfg.labelCfg?.style?.fill || "#000",
+          fontWeight: cfg.labelCfg?.style?.fontWeight || "normal",
+          fontStyle: cfg.labelCfg?.style?.fontStyle || "normal",
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         },
-        name: 'relationship-text',
+        name: "relationship-text",
         capture: false,
       });
     }
 
     return shape;
   };
-  G6.registerNode('relationship', {
+  G6.registerNode("relationship", {
     draw: drawRelationship,
     update(cfg: any, node: any) {
       const group = node.getContainer();
       const fontSize = resolveLabelFontSize(cfg, 16);
-      const relSize = measureRelationshipSize(cfg.label || '', fontSize);
+      const relSize = measureRelationshipSize(cfg.label || "", fontSize);
       const halfWidth = relSize.width / 2;
       const halfHeight = relSize.height / 2;
 
-      const shape = group.find((e: any) => e.get('name') === 'relationship-shape');
+      const shape = group.find((e: any) => e.get("name") === "relationship-shape");
       if (shape) {
         shape.attr({
           points: [
@@ -728,39 +747,39 @@ const registerCustomNodes = (G6: G6Like): void => {
             [0, halfHeight],
             [-halfWidth, 0],
           ],
-          fill: cfg.style?.fill ?? shape.attr('fill'),
-          stroke: cfg.style?.stroke ?? shape.attr('stroke'),
-          lineWidth: cfg.style?.lineWidth ?? shape.attr('lineWidth'),
+          fill: cfg.style?.fill ?? shape.attr("fill"),
+          stroke: cfg.style?.stroke ?? shape.attr("stroke"),
+          lineWidth: cfg.style?.lineWidth ?? shape.attr("lineWidth"),
           lineDash: cfg.style?.lineDash || [0, 0],
-          shadowColor: cfg.style?.shadowColor ?? '',
+          shadowColor: cfg.style?.shadowColor ?? "",
           shadowBlur: cfg.style?.shadowBlur ?? 0,
         });
       }
 
-      let textShape = group.find((e: any) => e.get('name') === 'relationship-text');
+      let textShape = group.find((e: any) => e.get("name") === "relationship-text");
       if (cfg.label) {
         const labelAttrs: Record<string, unknown> = {
           text: cfg.label,
           y: getRelationshipLabelTextY(fontSize),
           fontSize,
-          fill: cfg.labelCfg?.style?.fill ?? '#000',
-          fontWeight: cfg.labelCfg?.style?.fontWeight ?? 'normal',
-          fontStyle: cfg.labelCfg?.style?.fontStyle ?? 'normal',
+          fill: cfg.labelCfg?.style?.fill ?? "#000",
+          fontWeight: cfg.labelCfg?.style?.fontWeight ?? "normal",
+          fontStyle: cfg.labelCfg?.style?.fontStyle ?? "normal",
           fontFamily: cfg.labelCfg?.style?.fontFamily,
         };
         if (textShape) {
           textShape.attr(labelAttrs);
         } else {
-          group.addShape('text', {
+          group.addShape("text", {
             attrs: {
               x: 0,
               y: getRelationshipLabelTextY(fontSize),
               fontSize,
-              textAlign: 'center',
-              textBaseline: 'middle',
+              textAlign: "center",
+              textBaseline: "middle",
               ...labelAttrs,
             },
-            name: 'relationship-text',
+            name: "relationship-text",
             capture: false,
           });
         }
@@ -784,7 +803,7 @@ const registerCustomNodes = (G6: G6Like): void => {
   // 画二次贝塞尔曲线。两条边在端点处严丝合缝,只在中段分向两侧，
   // 形成对称的透镜/眼睛形。
   G6.registerEdge(
-    'self-loop-arc',
+    "self-loop-arc",
     {
       getControlPoints(cfg) {
         const { startPoint, endPoint, curveOffset = 22 } = cfg;
@@ -813,12 +832,12 @@ const registerCustomNodes = (G6: G6Like): void => {
                 y: (start.y + end.y) / 2,
               };
         return [
-          ['M', start.x, start.y],
-          ['Q', control.x, control.y, end.x, end.y],
+          ["M", start.x, start.y],
+          ["Q", control.x, control.y, end.x, end.y],
         ];
       },
     },
-    'single-edge',
+    "single-edge",
   );
 };
 
@@ -829,7 +848,7 @@ const patchRelationshipLinkPoints = (graph: GraphLike): void => {
   const nodes = graph.getNodes();
   nodes.forEach((n: GraphNodeLike) => {
     const model = n.getModel();
-    if (model.nodeType !== 'relationship') return;
+    if (model.nodeType !== "relationship") return;
     // 覆盖当前节点实例的 getLinkPoint，让所有连接重新计算到菱形边
     (n as GraphNodeLike & { getLinkPoint?: typeof calculateDiamondLinkPoint }).getLinkPoint =
       calculateDiamondLinkPoint;
@@ -849,14 +868,17 @@ const patchRelationshipLinkPoints = (graph: GraphLike): void => {
 const buildAttributeData = (
   tables: ParsedTable[],
   isColored: boolean = true,
-  labelMode: AttributeLabelMode | string = 'name',
+  labelMode: AttributeLabelMode | string = "name",
 ): ChenModelData => {
   const nodes: ERNodeModel[] = [];
   const edges: EREdgeModel[] = [];
   tables.forEach((table, tableIndex) => {
     const entityId = `entity-${table.name}-${tableIndex}`;
+    // 与 generateChenModelData 保持一致：复合 FK 的 "a, b" 拼接串按逗号拆开。
     const fkOnlyColumns = new Set(
-      table.foreignKeys.map((fk) => fk.column).filter((col) => !table.primaryKeys.includes(col)),
+      table.foreignKeys
+        .flatMap((fk) => fk.column.split(",").map((s) => s.trim()))
+        .filter((col) => col && !table.primaryKeys.includes(col)),
     );
     table.columns.forEach((column, colIndex) => {
       if (fkOnlyColumns.has(column.name)) return;
@@ -866,23 +888,23 @@ const buildAttributeData = (
 
       nodes.push({
         id: attributeId,
-        type: 'attribute',
+        type: "attribute",
         label: attrLabel,
         nameLabel: column.name,
         commentLabel: column.comment || column.name,
-        keyType: isPrimaryKey ? 'pk' : 'normal',
+        keyType: isPrimaryKey ? "pk" : "normal",
         style: {
-          fill: isColored ? (isPrimaryKey ? '#f6ffed' : '#fffbe6') : '#ffffff',
-          stroke: isColored ? (isPrimaryKey ? '#52c41a' : '#faad14') : '#000000',
+          fill: isColored ? (isPrimaryKey ? "#f6ffed" : "#fffbe6") : "#ffffff",
+          stroke: isColored ? (isPrimaryKey ? "#52c41a" : "#faad14") : "#000000",
           lineWidth: isPrimaryKey ? 2 : 1,
         },
         labelCfg: {
           style: {
-            fill: '#000000',
-            fontWeight: isPrimaryKey ? 'bold' : 'normal',
+            fill: "#000000",
+            fontWeight: isPrimaryKey ? "bold" : "normal",
           },
         },
-        nodeType: 'attribute',
+        nodeType: "attribute",
         parentEntity: entityId,
       });
 
@@ -890,8 +912,8 @@ const buildAttributeData = (
         id: `edge-${entityId}-${attributeId}-${tableIndex}-${colIndex}`,
         source: entityId,
         target: attributeId,
-        style: { stroke: '#000000' },
-        edgeType: 'entity-attribute',
+        style: { stroke: "#000000" },
+        edgeType: "entity-attribute",
       });
     });
   });
@@ -909,7 +931,7 @@ const estimateAttributeHalfSize = (
   const scale = getShrinkOnlyScale(fontSize, 15);
   const padding = 16 * scale;
   const minWidth = 60 * scale;
-  const textWidth = getTextWidth(label || '', fontSize);
+  const textWidth = getTextWidth(label || "", fontSize);
   const width = Math.max(minWidth, textWidth + padding * 2);
   const height = getAttributeHeight(fontSize, hasUnderline);
   return { halfW: width / 2, halfH: height / 2 };
@@ -929,7 +951,7 @@ interface NodeSize {
 
 const measureEntitySize = (label: string | undefined | null, fontSize: number = 18): NodeSize => {
   const scale = getShrinkOnlyScale(fontSize, 18);
-  const textWidth = getTextWidth(label || '', fontSize);
+  const textWidth = getTextWidth(label || "", fontSize);
   const padding = 10 * scale;
   const width = Math.max(80 * scale, textWidth + padding * 2);
   const height = Math.max(50 * scale, fontSize + 20 * scale);
@@ -950,7 +972,7 @@ const measureRelationshipSize = (
   fontSize: number = 16,
 ): NodeSize => {
   const scale = getShrinkOnlyScale(fontSize, 16);
-  const textWidth = getTextWidth(label || '', fontSize);
+  const textWidth = getTextWidth(label || "", fontSize);
   const horizontalPadding = 24 * scale;
   const verticalPadding = 16 * scale;
   const minWidth = 80 * scale;
@@ -974,15 +996,16 @@ const measureNodeSize = (model: {
   keyType?: string;
   labelCfg?: { style?: { fontSize?: number | string } };
 }): NodeSize => {
-  const type = model.nodeType || 'entity';
+  const type = model.nodeType || "entity";
   const base = NODE_FONT_BASE[type] ?? 15;
   const raw = model.labelCfg?.style?.fontSize;
-  const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number.parseFloat(raw) : NaN;
+  const parsed =
+    typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseFloat(raw) : NaN;
   const fontSize = Number.isFinite(parsed) && parsed > 0 ? parsed : base;
-  const label = model.label == null ? '' : String(model.label);
-  if (type === 'entity') return measureEntitySize(label, fontSize);
-  if (type === 'relationship') return measureRelationshipSize(label, fontSize);
-  return measureAttributeSize(label, fontSize, model.keyType === 'pk');
+  const label = model.label == null ? "" : String(model.label);
+  if (type === "entity") return measureEntitySize(label, fontSize);
+  if (type === "relationship") return measureRelationshipSize(label, fontSize);
+  return measureAttributeSize(label, fontSize, model.keyType === "pk");
 };
 
 export {

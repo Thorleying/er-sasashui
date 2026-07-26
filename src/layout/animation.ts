@@ -147,16 +147,18 @@ export const smoothFitView = (graph: GraphLike, duration = 800, easing = "easeOu
  * @param {Object} graph - G6 图形实例
  * @param {Map} targets - 目标位置映射 (nodeId -> {x, y})
  * @param {number} duration - 动画持续时间（毫秒）
- * @param {Function} onFinish - 动画完成回调
+ * @param {Function} onFinish - 动画完成回调。动画被新的动画/取消抢占时，
+ *   仍会以 `{ cancelled: true }` 调用一次，让挂在回调上的持久化等副作用
+ *   不被静默吞掉；正常完成时传 `{ cancelled: false }`。
  */
 export const animateNodesToTargets = (
   graph: GraphLike,
   targets: Map<string, { x?: number; y?: number }>,
   duration = 800,
-  onFinish?: () => void,
+  onFinish?: (info?: { cancelled: boolean }) => void,
 ) => {
   if (!graph || graph.destroyed || !targets?.size) {
-    if (onFinish) onFinish();
+    if (onFinish) onFinish({ cancelled: false });
     return;
   }
 
@@ -171,9 +173,20 @@ export const animateNodesToTargets = (
 
   const startTime = performance.now();
   graph.setAutoPaint(false);
+  let notified = false;
+  const notifyFinish = (cancelled: boolean) => {
+    if (notified) return;
+    notified = true;
+    if (onFinish) onFinish({ cancelled });
+  };
 
   const step = (currentTime: number) => {
-    if (!graph || graph.destroyed || !isCurrentToken(nodeAnimationTokens, graph, token)) return;
+    if (!graph || graph.destroyed) return;
+    if (!isCurrentToken(nodeAnimationTokens, graph, token)) {
+      // 被新的动画 / cancelNodeAnimation 抢占：以 cancelled 语义通知调用方。
+      notifyFinish(true);
+      return;
+    }
 
     const rawProgress = clampAnimationProgress(currentTime, startTime, duration);
     const progress = 1 - Math.pow(1 - rawProgress, 3);
@@ -197,7 +210,7 @@ export const animateNodesToTargets = (
       requestAnimationFrame(step);
     } else {
       graph.setAutoPaint(true);
-      if (isCurrentToken(nodeAnimationTokens, graph, token) && onFinish) onFinish();
+      if (isCurrentToken(nodeAnimationTokens, graph, token)) notifyFinish(false);
     }
   };
 

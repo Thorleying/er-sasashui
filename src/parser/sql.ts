@@ -30,7 +30,10 @@ import type {
 } from "../types";
 
 // 标识符字符（含 `$`：PostgreSQL / Oracle 允许标识符里出现 `$`，如 order$line）。
-const isWordChar = (c: string | undefined): boolean => !!c && /[A-Za-z0-9_$一-龥]/.test(c);
+// 用 Unicode 属性类而非硬编码 `一-龥`，日文假名 / 韩文谚文等标识符同样有效。
+const WORD_RE = /[\p{L}\p{N}\p{M}_$]/u;
+
+const isWordChar = (c: string | undefined): boolean => !!c && WORD_RE.test(c);
 
 // ---------------------------------------------------------------------------
 // 1. 注释消隐（保留偏移）：把注释替换成等长空白，字符串/引用标识符原样保留。
@@ -166,7 +169,7 @@ const blankComments = (src: string): string => {
     // 原样保留；否则按 MySQL `#` 行注释处理 -> 等长空白。
     if (ch === "#") {
       const next = src[i + 1];
-      if (next && /[A-Za-z0-9_#一-龥]/.test(next)) {
+      if (next && (next === "#" || isWordChar(next))) {
         out += ch;
         i++;
         continue;
@@ -213,8 +216,6 @@ interface Token {
   // 双引号 ident 还原为字符串（MySQL 默认模式下 COMMENT "..." 的 "..." 是字符串）。
   q?: string;
 }
-
-const WORD_RE = /[A-Za-z0-9_$一-龥]/;
 
 const tokenize = (s: string): Token[] => {
   const toks: Token[] = [];
@@ -970,7 +971,7 @@ const parseElement = (el: Token[], acc: TableAccum): void => {
 // 6. 单条 CREATE TABLE 语句解析
 // ---------------------------------------------------------------------------
 type StmtResult =
-  | { kind: "table"; table: ParsedTable; uniqueSingleCols: Set<string> }
+  | { kind: "table"; table: ParsedTable; uniqueSingleCols: Set<string>; line: number }
   | { kind: "like"; name: string; source: string; line: number }
   | {
       kind: "alter";
@@ -980,6 +981,11 @@ type StmtResult =
       foreignKeys: ParsedForeignKey[];
       primaryKeys: string[];
       uniqueSingleCols: Set<string>;
+      dropColumns: string[];
+      renameTo?: string;
+      // CREATE UNIQUE INDEX 复用 alter 通路写回 unique 标记；
+      // 挂接失败时的警告文案按该标记区分。
+      via?: "create_index";
     }
   | {
       kind: "comment";
@@ -1021,23 +1027,128 @@ const parseAlter = (
     warnings,
     fkLines,
   };
+  const dropColumns: string[] = [];
+  let renameTo: string | undefined;
+  // 已对某个动作单独发过警告 / 识别出结构无关的 no-op 动作时，
+  // 结尾不再重复发"整条语句被跳过"的警告。
+  let warnedAction = false;
+  let sawNoopAction = false;
+  const warnSkippedAction = (line: number | undefined, verb: string): void => {
+    warnedAction = true;
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      line,
+      `ALTER TABLE "${nameRead.name}" ${verb} action was skipped`,
+    );
+  };
+  // DROP 后跟这些词时不是删列，而是删约束 / 索引 / 分区等。
+  const NON_COLUMN_DROP = new Set([
+    "CONSTRAINT",
+    "INDEX",
+    "KEY",
+    "PRIMARY",
+    "FOREIGN",
+    "CHECK",
+    "PARTITION",
+    "DEFAULT",
+  ]);
 
   for (const action of splitByComma(toks.slice(nameRead.next))) {
-    if (kw(action[0]) !== "ADD") continue;
-    let el = action.slice(1);
-    if (kw(el[0]) === "COLUMN") {
-      el = el.slice(1);
-      if (kw(el[0]) === "IF" && kw(el[1]) === "NOT" && kw(el[2]) === "EXISTS") el = el.slice(3);
+    let el = action;
+    // SQL Server（SSMS 默认导出）：ALTER TABLE x WITH CHECK ADD CONSTRAINT ... /
+    // WITH NOCHECK ADD ...。剥掉前缀再判动作。
+    if (kw(el[0]) === "WITH" && (kw(el[1]) === "CHECK" || kw(el[1]) === "NOCHECK")) {
+      el = el.slice(2);
     }
-    if (el.length) parseElement(el, acc);
+    const head = kw(el[0]);
+
+    if (head === "ADD") {
+      el = el.slice(1);
+      if (kw(el[0]) === "COLUMN") {
+        el = el.slice(1);
+        if (kw(el[0]) === "IF" && kw(el[1]) === "NOT" && kw(el[2]) === "EXISTS") el = el.slice(3);
+      }
+      if (el.length) parseElement(el, acc);
+      continue;
+    }
+
+    // SQL Server 启停约束（CHECK CONSTRAINT fk / NOCHECK CONSTRAINT all）：
+    // 不影响表结构，静默跳过，也不触发结尾的整句警告。
+    if ((head === "CHECK" || head === "NOCHECK") && kw(el[1]) === "CONSTRAINT") {
+      sawNoopAction = true;
+      continue;
+    }
+
+    if (head === "DROP") {
+      let q = 1;
+      if (kw(el[q]) === "COLUMN") {
+        q++;
+        if (kw(el[q]) === "IF" && kw(el[q + 1]) === "EXISTS") q += 2;
+      } else if (NON_COLUMN_DROP.has(kw(el[q]) ?? "")) {
+        warnSkippedAction(el[0]?.line, `DROP ${kw(el[q])}`);
+        continue;
+      }
+      if (isNameTok(el[q])) {
+        dropColumns.push(el[q].value);
+      } else {
+        warnSkippedAction(el[0]?.line, "DROP");
+      }
+      continue;
+    }
+
+    if (head === "RENAME") {
+      const second = kw(el[1]);
+      if (second === "TO" || second === "AS") {
+        const q = readQualifiedName(el, 2);
+        if (q) {
+          renameTo = q.name;
+          continue;
+        }
+      } else if (
+        second !== "COLUMN" &&
+        second !== "INDEX" &&
+        second !== "KEY" &&
+        isNameTok(el[1])
+      ) {
+        // MySQL: ALTER TABLE t RENAME new_name
+        const q = readQualifiedName(el, 1);
+        if (q) {
+          renameTo = q.name;
+          continue;
+        }
+      }
+      warnSkippedAction(el[0]?.line, second === "COLUMN" ? "RENAME COLUMN" : "RENAME");
+      continue;
+    }
+
+    if (head === "MODIFY" || head === "CHANGE") {
+      warnSkippedAction(el[0]?.line, head);
+      continue;
+    }
+    if (head === "ALTER") {
+      warnSkippedAction(el[0]?.line, "ALTER COLUMN");
+      continue;
+    }
   }
 
   if (
     !acc.columns.length &&
     !acc.foreignKeys.length &&
     !acc.primaryKeys.length &&
-    !acc.uniqueSingleCols.size
+    !acc.uniqueSingleCols.size &&
+    !dropColumns.length &&
+    !renameTo
   ) {
+    // 整条 ALTER 一个受支持的动作都没识别出来：发一条带行号的警告而非静默丢弃。
+    if (!warnedAction && !sawNoopAction) {
+      pushWarning(
+        warnings,
+        "statement_skipped",
+        toks[0]?.line,
+        `ALTER TABLE "${nameRead.name}" was skipped because no supported action was recognized`,
+      );
+    }
     return null;
   }
   return {
@@ -1048,6 +1159,47 @@ const parseAlter = (
     foreignKeys: acc.foreignKeys,
     primaryKeys: acc.primaryKeys,
     uniqueSingleCols: acc.uniqueSingleCols,
+    dropColumns,
+    ...(renameTo ? { renameTo } : {}),
+  };
+};
+
+// CREATE [UNIQUE] INDEX ... ON <table> (cols) —— UNIQUE 且单列时把该列标记为
+// unique（参与 1:1 推断），复用 alter 通路的 uniqueSingleCols 挂接。
+// 非 UNIQUE 的 INDEX 对 ER 图没有影响，静默跳过。
+const parseCreateIndex = (toks: Token[], from: number, isUnique: boolean): StmtResult => {
+  let p = from;
+  if (kw(toks[p]) === "CONCURRENTLY") p++;
+  if (kw(toks[p]) === "IF" && kw(toks[p + 1]) === "NOT" && kw(toks[p + 2]) === "EXISTS") p += 3;
+  // 索引名可省略（PostgreSQL: CREATE UNIQUE INDEX ON t (col)）。
+  if (kw(toks[p]) !== "ON") {
+    const idxName = readQualifiedName(toks, p);
+    if (!idxName) return null;
+    p = idxName.next;
+  }
+  if (kw(toks[p]) !== "ON") return null;
+  p++;
+  if (kw(toks[p]) === "ONLY") p++;
+  const tbl = readQualifiedName(toks, p);
+  if (!tbl) return null;
+  p = tbl.next;
+  if (kw(toks[p]) === "USING" && toks[p + 1]) p += 2; // USING btree 等
+  if (!isUnique) return null;
+  const open = findOpenParen(toks, p);
+  if (open === -1) return null;
+  const cols = parseColumnNameList(toks, open);
+  // 复合唯一索引不代表任一列单独唯一，跳过。
+  if (cols.length !== 1) return null;
+  return {
+    kind: "alter",
+    table: tbl.name,
+    line: toks[0]?.line ?? 1,
+    columns: [],
+    foreignKeys: [],
+    primaryKeys: [],
+    uniqueSingleCols: new Set(cols),
+    dropColumns: [],
+    via: "create_index",
   };
 };
 
@@ -1111,6 +1263,17 @@ const parseStatement = (
   // CREATE OR REPLACE TABLE ...（MariaDB / 部分方言）
   if (kw(toks[p]) === "OR" && kw(toks[p + 1]) === "REPLACE") p += 2;
   while (CREATE_MODIFIERS.has(kw(toks[p]) ?? "")) p++;
+  // CREATE [UNIQUE] [CLUSTERED|NONCLUSTERED] INDEX ... ON <table> (cols)
+  {
+    let q = p;
+    let uniqueIndex = false;
+    if (kw(toks[q]) === "UNIQUE") {
+      uniqueIndex = true;
+      q++;
+    }
+    while (kw(toks[q]) === "CLUSTERED" || kw(toks[q]) === "NONCLUSTERED") q++;
+    if (kw(toks[q]) === "INDEX") return parseCreateIndex(toks, q + 1, uniqueIndex);
+  }
   if (kw(toks[p]) !== "TABLE") return null;
   p++;
   if (kw(toks[p]) === "IF" && kw(toks[p + 1]) === "NOT" && kw(toks[p + 2]) === "EXISTS") p += 3;
@@ -1148,7 +1311,9 @@ const parseStatement = (
   // CREATE TABLE copy LIKE original —— 复制源表结构。
   if (headKw === "LIKE") {
     const src = readQualifiedName(toks, p + 1);
-    return src ? { kind: "like", name: tableName, source: src.name, line: toks[p]?.line ?? 1 } : null;
+    return src
+      ? { kind: "like", name: tableName, source: src.name, line: toks[p]?.line ?? 1 }
+      : null;
   }
 
   // 主体括号
@@ -1212,7 +1377,7 @@ const parseStatement = (
     foreignKeys: acc.foreignKeys,
     ...(tableComment ? { comment: tableComment } : {}),
   };
-  return { kind: "table", table, uniqueSingleCols: acc.uniqueSingleCols };
+  return { kind: "table", table, uniqueSingleCols: acc.uniqueSingleCols, line: toks[0]?.line ?? 1 };
 };
 
 // ---------------------------------------------------------------------------
@@ -1235,9 +1400,17 @@ export const parseSQLTables = (sql: string): ParseResult => {
   }
 
   const tables: ParsedTable[] = [];
+  const seenTableNames = new Set<string>();
+  const noteTableName = (name: string, line: number): void => {
+    if (seenTableNames.has(name)) {
+      pushWarning(warnings, "duplicate_table", line, `table "${name}" is defined more than once`);
+    }
+    seenTableNames.add(name);
+  };
   for (const r of results) {
     if (!r) continue;
     if (r.kind === "table") {
+      noteTableName(r.table.name, r.line);
       tables.push(r.table);
     } else if (r.kind === "like") {
       // LIKE：复制源表的列与主键（不复制外键 / 关系，符合 LIKE 的默认语义）。
@@ -1250,6 +1423,7 @@ export const parseSQLTables = (sql: string): ParseResult => {
           `CREATE TABLE "${r.name}" LIKE source "${r.source}" was not found`,
         );
       }
+      noteTableName(r.name, r.line);
       tables.push({
         name: r.name,
         columns: src ? src.columns.map((c) => ({ ...c })) : [],
@@ -1260,12 +1434,26 @@ export const parseSQLTables = (sql: string): ParseResult => {
     // alterfk：不产生新表，稍后挂接到已有表上。
   }
 
-  const findTable = (full: string, short?: string): ParsedTable | undefined =>
-    tables.find((tb) => tb.name === full) ??
-    (short ? tables.find((tb) => tb.name === short) : undefined);
+  // 统一的表解析：精确匹配 → 大小写不敏感匹配 → 短名回退（FK / ALTER / COMMENT
+  // 与表定义之间 schema 限定或大小写不一致时仍能命中同一张表，避免 builder 因
+  // 名字对不上而生成"幽灵"占位实体）。短名回退仅当查询名与候选表名不同时限定
+  // schema 时才启用，防止 crm.account 误命中 app.account。
+  const findTable = (full: string): ParsedTable | undefined => {
+    const exact = tables.find((tb) => tb.name === full);
+    if (exact) return exact;
+    const fullLower = full.toLowerCase();
+    const ci = tables.find((tb) => tb.name.toLowerCase() === fullLower);
+    if (ci) return ci;
+    const queryQualified = full.includes(".");
+    const shortLower = shortTableName(full).toLowerCase();
+    return tables.find((tb) => {
+      if (queryQualified && tb.name.includes(".")) return false;
+      return shortTableName(tb.name).toLowerCase() === shortLower;
+    });
+  };
 
-  // ALTER TABLE ... ADD ... —— 把新增的列 / 主键 / 唯一约束 / 外键挂到对应的（已定义）
-  // 表上，再走后续统一的关系生成与基数推断。
+  // ALTER TABLE ... —— 把新增的列 / 主键 / 唯一约束 / 外键挂到对应的（已定义）
+  // 表上，应用 DROP COLUMN / RENAME TO，再走后续统一的关系生成与基数推断。
   for (const r of results) {
     if (!r || r.kind !== "alter") continue;
     const t = findTable(r.table);
@@ -1274,7 +1462,9 @@ export const parseSQLTables = (sql: string): ParseResult => {
         warnings,
         "table_reference_missing",
         r.line,
-        `ALTER TABLE "${r.table}" skipped because the table was not found`,
+        r.via === "create_index"
+          ? `CREATE INDEX on "${r.table}" skipped because the table was not found`
+          : `ALTER TABLE "${r.table}" skipped because the table was not found`,
       );
       continue;
     }
@@ -1289,13 +1479,19 @@ export const parseSQLTables = (sql: string): ParseResult => {
       if (col && !col.isPrimaryKey) col.isUnique = true;
     }
     t.foreignKeys.push(...r.foreignKeys);
+    for (const dc of r.dropColumns) {
+      t.columns = t.columns.filter((c) => c.name !== dc);
+      t.primaryKeys = t.primaryKeys.filter((pk) => pk !== dc);
+      t.foreignKeys = t.foreignKeys.filter((fk) => fk.column !== dc);
+    }
+    if (r.renameTo) t.name = r.renameTo;
   }
 
   // COMMENT ON TABLE / COLUMN —— 设置表 / 列注释（在关系生成之前，使 FK 列注释也能
   // 作为关系注释来源）。
   for (const r of results) {
     if (!r || r.kind !== "comment") continue;
-    const t = findTable(r.tableFull, r.tableShort);
+    const t = findTable(r.tableFull);
     if (!t) {
       pushWarning(
         warnings,
@@ -1313,11 +1509,14 @@ export const parseSQLTables = (sql: string): ParseResult => {
     }
   }
 
-  // 由各表的外键推导关系，并做基数推断。
+  // 由各表的外键推导关系，并做基数推断。关系的 to 端回写为实际命中的表名
+  //（而非 FK 原文），保证 builder 端按名字查实体一定命中，不再产生同表的
+  // "幽灵"占位实体。
   const relationships: ParsedRelationship[] = [];
   for (const t of tables) {
     for (const fk of t.foreignKeys) {
-      if (!findTable(fk.referencedTable, shortTableName(fk.referencedTable))) {
+      const target = findTable(fk.referencedTable);
+      if (!target) {
         pushWarning(
           warnings,
           "table_reference_missing",
@@ -1332,7 +1531,7 @@ export const parseSQLTables = (sql: string): ParseResult => {
         !composite && (fkCol?.isUnique || isOnlySinglePk) ? "1" : "N";
       relationships.push({
         from: t.name,
-        to: fk.referencedTable,
+        to: target ? target.name : fk.referencedTable,
         label: fk.column,
         fromCardinality,
         toCardinality: "1",

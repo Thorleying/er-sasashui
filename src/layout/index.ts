@@ -8,6 +8,5 @@ export {
   buildEntitySkeleton,
   computeSkeletonEmbedding,
   ringRadiusFor,
-  stressLayout,
 } from "./skeletonLayout";
 export { placeAttributesModerate } from "./attributeRings";

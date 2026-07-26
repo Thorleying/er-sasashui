@@ -1,8 +1,7 @@
 import { measureNodeSize } from "../builder";
 import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
+import { TAU, angleDistance, segmentsCross } from "./geometry";
 import type { EREdgeModel, ERNodeModel } from "../types";
-
-const TAU = Math.PI * 2;
 
 interface Pt {
   x: number;
@@ -218,21 +217,22 @@ function connectedComponentsOf(adj: Map<string, Set<string>>): string[][] {
   return components;
 }
 
-function combinations<T>(items: T[], size: number): T[][] {
-  const result: T[][] = [];
-  const pick = (start: number, acc: T[]) => {
-    if (acc.length === size) {
-      result.push([...acc]);
-      return;
-    }
+/**
+ * Enumerate size-`size` combinations without materializing them all; the
+ * callback returning true short-circuits the whole enumeration.
+ */
+function someCombination<T>(items: T[], size: number, cb: (combo: T[]) => boolean): boolean {
+  const acc: T[] = [];
+  const pick = (start: number): boolean => {
+    if (acc.length === size) return cb(acc);
     for (let i = start; i <= items.length - (size - acc.length); i++) {
       acc.push(items[i]);
-      pick(i + 1, acc);
+      if (pick(i + 1)) return true;
       acc.pop();
     }
+    return false;
   };
-  pick(0, []);
-  return result;
+  return pick(0);
 }
 
 function isBipartiteComponent(component: string[], adj: Map<string, Set<string>>): boolean {
@@ -270,7 +270,7 @@ function componentEdgeCount(component: string[], edgeKeys: Set<string>): number 
 }
 
 function hasK5Subgraph(component: string[], edgeKeys: Set<string>): boolean {
-  return combinations(component, 5).some((group) => {
+  return someCombination(component, 5, (group) => {
     for (let i = 0; i < group.length; i++) {
       for (let j = i + 1; j < group.length; j++) {
         if (!edgeKeys.has(pairKey(group[i], group[j]))) return false;
@@ -281,25 +281,24 @@ function hasK5Subgraph(component: string[], edgeKeys: Set<string>): boolean {
 }
 
 function hasK33Subgraph(component: string[], edgeKeys: Set<string>): boolean {
-  for (const left of combinations(component, 3)) {
+  return someCombination(component, 3, (left) => {
     const leftSet = new Set(left);
+    const leftCopy = [...left];
     const remaining = component.filter((id) => !leftSet.has(id));
-    for (const right of combinations(remaining, 3)) {
-      let complete = true;
-      for (const a of left) {
+    return someCombination(remaining, 3, (right) => {
+      for (const a of leftCopy) {
         for (const b of right) {
-          if (!edgeKeys.has(pairKey(a, b))) {
-            complete = false;
-            break;
-          }
+          if (!edgeKeys.has(pairKey(a, b))) return false;
         }
-        if (!complete) break;
       }
-      if (complete) return true;
-    }
-  }
-  return false;
+      return true;
+    });
+  });
 }
+
+// 约化后顶点数超过该值时跳过 K5/K3,3 穷举（组合数呈指数爆炸），
+// 只保留欧拉公式判据作为"可能非平面"的近似。
+const PLANARITY_EXHAUSTIVE_LIMIT = 12;
 
 function isLikelyPlanar(vertices: string[], edgeKeys: Set<string>): boolean {
   const reducedAdj = reduceSeriesVertices(makeAdjacency(vertices, edgeKeys));
@@ -310,6 +309,7 @@ function isLikelyPlanar(vertices: string[], edgeKeys: Set<string>): boolean {
     if (v < 3) continue;
     if (e > 3 * v - 6) return false;
     if (isBipartiteComponent(component, reducedAdj) && e > 2 * v - 4) return false;
+    if (v > PLANARITY_EXHAUSTIVE_LIMIT) continue;
     if (hasK5Subgraph(component, reducedEdges)) return false;
     if (hasK33Subgraph(component, reducedEdges)) return false;
   }
@@ -366,17 +366,6 @@ function maximalPlanarEdgeKeys(skeleton: EntitySkeleton): { planar: string[]; de
     deferred: all.filter((key) => deferred.has(key)),
   };
 }
-
-const segmentsCross = (a1: Pt, a2: Pt, b1: Pt, b2: Pt): boolean => {
-  const eq = (p: Pt, q: Pt) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
-  if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
-  const c = (o: Pt, p: Pt, q: Pt) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
-  const d1 = c(b1, b2, a1);
-  const d2 = c(b1, b2, a2);
-  const d3 = c(a1, a2, b1);
-  const d4 = c(a1, a2, b2);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-};
 
 function countCrossings(pos: Map<string, Pt>, edges: Array<{ a: string; b: string }>): number {
   let total = 0;
@@ -648,25 +637,30 @@ function smacof(pos: Pt[], distances: number[][], iters: number): void {
   }
 }
 
-function removeOverlaps(pos: Pt[], rad: number[], iters = 400): void {
+// AABB 最小重叠轴分离（与 autoAvoid 的矩形分离口径一致）。
+// 外接圆分离会把宽实体沿对角方向推得过散。
+function removeOverlaps(pos: Pt[], halfW: number[], halfH: number[], iters = 400): void {
   for (let iter = 0; iter < iters; iter++) {
     let moved = 0;
     for (let i = 0; i < pos.length; i++) {
       for (let j = i + 1; j < pos.length; j++) {
         const dx = pos[j].x - pos[i].x;
         const dy = pos[j].y - pos[i].y;
-        const dist = Math.hypot(dx, dy) || 1e-4;
-        const min = rad[i] + rad[j];
-        if (dist < min) {
-          const push = (min - dist) / 2;
-          const ux = dx / dist;
-          const uy = dy / dist;
-          pos[i].x -= ux * push;
-          pos[i].y -= uy * push;
-          pos[j].x += ux * push;
-          pos[j].y += uy * push;
-          moved = Math.max(moved, push);
+        const overlapX = halfW[i] + halfW[j] - Math.abs(dx);
+        const overlapY = halfH[i] + halfH[j] - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+        const separateX = overlapX <= overlapY;
+        const rawDelta = separateX ? dx : dy;
+        const sign = Math.abs(rawDelta) > 1e-6 ? Math.sign(rawDelta) : 1;
+        const push = (separateX ? overlapX : overlapY) / 2;
+        if (separateX) {
+          pos[i].x -= sign * push;
+          pos[j].x += sign * push;
+        } else {
+          pos[i].y -= sign * push;
+          pos[j].y += sign * push;
         }
+        moved = Math.max(moved, push);
       }
     }
     if (moved < 0.3) break;
@@ -686,18 +680,52 @@ function countArrayCrossings(pos: Pt[], edges: [number, number][]): number {
   return total;
 }
 
+// 2-opt 交叉消除的实体数上限：超过后 O(V²) 交换枚举收益低、成本高。
+const MAX_TWO_OPT_VERTICES = 40;
+
 function reduceCrossings(pos: Pt[], edges: [number, number][], n: number): void {
+  if (n > MAX_TWO_OPT_VERTICES) return;
   let cur = countArrayCrossings(pos, edges);
+  if (cur <= 0) return;
+
+  // 增量评估：交换顶点 i/j 只改变与 i 或 j 关联的边，只统计"受影响边 ×
+  // 其余所有边"的交叉数，交换前后之差即全局交叉数变化量。
+  const edgesByVertex: number[][] = Array.from({ length: n }, () => []);
+  edges.forEach(([a, b], index) => {
+    if (a < n) edgesByVertex[a].push(index);
+    if (b < n && b !== a) edgesByVertex[b].push(index);
+  });
+
+  const crossingsInvolving = (affected: number[], affectedSet: Set<number>): number => {
+    let total = 0;
+    for (let ai = 0; ai < affected.length; ai++) {
+      const i = affected[ai];
+      const [a, b] = edges[i];
+      for (let j = 0; j < edges.length; j++) {
+        if (j === i) continue;
+        if (affectedSet.has(j) && j < i) continue; // 受影响边对之间只数一次
+        const [c, d] = edges[j];
+        if (a === c || a === d || b === c || b === d) continue;
+        if (segmentsCross(pos[a], pos[b], pos[c], pos[d])) total++;
+      }
+    }
+    return total;
+  };
+
   for (let pass = 0; pass < 8 && cur > 0; pass++) {
     let improved = false;
     for (let i = 0; i < n && cur > 0; i++) {
       for (let j = i + 1; j < n; j++) {
+        const affectedSet = new Set<number>([...edgesByVertex[i], ...edgesByVertex[j]]);
+        if (!affectedSet.size) continue;
+        const affected = [...affectedSet].sort((x, y) => x - y);
+        const before = crossingsInvolving(affected, affectedSet);
         const tmp = pos[i];
         pos[i] = pos[j];
         pos[j] = tmp;
-        const next = countArrayCrossings(pos, edges);
-        if (next < cur) {
-          cur = next;
+        const after = crossingsInvolving(affected, affectedSet);
+        if (after < before) {
+          cur += after - before;
           improved = true;
         } else {
           const restore = pos[i];
@@ -756,12 +784,6 @@ function rotateToTargetAspect(pos: Pt[], rad: number[], target = 1.5): void {
   }
 }
 
-function angleDistance(a: number, b: number): number {
-  let d = Math.abs(a - b) % TAU;
-  if (d > Math.PI) d = TAU - d;
-  return d;
-}
-
 function placeRelationshipNodes(
   nodes: ERNodeModel[],
   skeleton: EntitySkeleton,
@@ -771,11 +793,14 @@ function placeRelationshipNodes(
 ): void {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const entities = nodes.filter((node) => node.nodeType === "entity");
-  const rels = nodes.filter((node) => node.nodeType === "relationship");
   const epos = new Map(
     entities.map((entity) => [entity.id, { x: entity.x ?? 0, y: entity.y ?? 0 }]),
   );
   const deferred = new Set(embedding.deferredEdgeKeys);
+
+  // deferred 边的菱形按出现顺序交替偏向两侧（原先按 key 首字符奇偶决定，
+  // 常见前缀相同的 id 会全部挤到同一侧）。
+  let deferredIndex = 0;
 
   skeleton.simpleEdges.forEach((edge) => {
     const pa = epos.get(edge.a);
@@ -795,7 +820,9 @@ function placeRelationshipNodes(
     if (!relItems.length) return;
     const maxHalf = Math.max(...relItems.map(halfDiag));
     const mid = (relItems.length - 1) / 2;
-    const extra = deferred.has(edge.key) ? maxHalf * 2 + 54 * sizeScale : 0;
+    const isDeferred = deferred.has(edge.key);
+    const extra = isDeferred ? maxHalf * 2 + 54 * sizeScale : 0;
+    const deferredSign = isDeferred ? (deferredIndex++ % 2 === 0 ? 1 : -1) : 0;
     relItems.forEach((rel, index) => {
       const dh = halfDiag(rel);
       const free =
@@ -803,7 +830,7 @@ function placeRelationshipNodes(
       const gap = Math.max(20 * sizeScale, free / 2);
       const fromA = (ring.get(edge.a) ?? 40 * sizeScale) + dh + gap;
       const parallelOffset = (index - mid) * (maxHalf * 2 + 16 * sizeScale);
-      const deferredOffset = extra ? (edge.key.charCodeAt(0) % 2 === 0 ? extra : -extra) : 0;
+      const deferredOffset = extra * deferredSign;
       rel.x = pa.x + ux * fromA + px * (parallelOffset + deferredOffset);
       rel.y = pa.y + uy * fromA + py * (parallelOffset + deferredOffset);
     });
@@ -960,14 +987,27 @@ export function applySkeletonLayout(
       ] as const;
     }),
   );
-  const footprint = new Map(
+  // 实体系统的占位盒：有属性时属性环近似圆（取正方形 AABB）；没有属性时
+  // 用实体自身矩形——外接圆半径会把宽实体的纵向占位大幅高估。
+  interface Footprint {
+    hw: number;
+    hh: number;
+    r: number;
+  }
+  const footprint = new Map<string, Footprint>(
     skeleton.entityIds.map((id) => {
+      const entity = entityById.get(id)!;
       const attrs = attrsByEntity.get(id) ?? [];
-      const maxAttr = attrs.length ? Math.max(...attrs.map(maxHalfOf)) : 0;
-      return [
-        id,
-        (ring.get(id) ?? halfDiag(entityById.get(id)!)) + maxAttr + 6 * sizeScale,
-      ] as const;
+      const padding = 6 * sizeScale;
+      if (attrs.length) {
+        const maxAttr = Math.max(...attrs.map(maxHalfOf));
+        const r = (ring.get(id) ?? halfDiag(entity)) + maxAttr + padding;
+        return [id, { hw: r, hh: r, r }] as const;
+      }
+      const size = measureNodeSize(entity);
+      const hw = size.width / 2 + padding;
+      const hh = size.height / 2 + padding;
+      return [id, { hw, hh, r: Math.max(hw, hh) }] as const;
     }),
   );
 
@@ -979,8 +1019,9 @@ export function applySkeletonLayout(
   });
 
   const desired = new Map<string, number>();
+  const planarKeySet = new Set(embedding.planarEdgeKeys);
   skeleton.simpleEdges.forEach((edge) => {
-    if (!embedding.planarEdgeKeys.includes(edge.key)) return;
+    if (!planarKeySet.has(edge.key)) return;
     const maxRelHalf = Math.max(
       ...edge.relationshipIds
         .map((id) => relById.get(id))
@@ -1011,7 +1052,15 @@ export function applySkeletonLayout(
       const entity = entityById.get(id)!;
       return { x: entity.x ?? 0, y: entity.y ?? 0 };
     });
-    const rad = ids.map((id) => footprint.get(id) ?? 60 * sizeScale);
+    const fallbackFootprint: Footprint = {
+      hw: 60 * sizeScale,
+      hh: 60 * sizeScale,
+      r: 60 * sizeScale,
+    };
+    const boxes = ids.map((id) => footprint.get(id) ?? fallbackFootprint);
+    const halfW = boxes.map((box) => box.hw);
+    const halfH = boxes.map((box) => box.hh);
+    const rad = boxes.map((box) => box.r);
     const localEdges: [number, number][] = [];
     embedding.planarEdges.forEach((edge) => {
       if (!idx.has(edge.a) || !idx.has(edge.b)) return;
@@ -1040,9 +1089,9 @@ export function applySkeletonLayout(
         }
       }
       smacof(localPos, d, options.stressIterations ?? 260);
-      removeOverlaps(localPos, rad, 360);
+      removeOverlaps(localPos, halfW, halfH, 360);
       reduceCrossings(localPos, localEdges, ids.length);
-      removeOverlaps(localPos, rad, 360);
+      removeOverlaps(localPos, halfW, halfH, 360);
       rotateToTargetAspect(localPos, rad);
     }
 
@@ -1051,11 +1100,11 @@ export function applySkeletonLayout(
     let maxX = -Infinity;
     let maxY = -Infinity;
     ids.forEach((id, index) => {
-      const r = footprint.get(id) ?? 60 * sizeScale;
-      minX = Math.min(minX, localPos[index].x - r);
-      maxX = Math.max(maxX, localPos[index].x + r);
-      minY = Math.min(minY, localPos[index].y - r);
-      maxY = Math.max(maxY, localPos[index].y + r);
+      const box = footprint.get(id) ?? fallbackFootprint;
+      minX = Math.min(minX, localPos[index].x - box.hw);
+      maxX = Math.max(maxX, localPos[index].x + box.hw);
+      minY = Math.min(minY, localPos[index].y - box.hh);
+      maxY = Math.max(maxY, localPos[index].y + box.hh);
     });
     const pos = new Map<string, Pt>();
     ids.forEach((id, index) =>
@@ -1089,12 +1138,4 @@ export function applySkeletonLayout(
 
   placeRelationshipNodes(nodes, skeleton, embedding, ring, sizeScale);
   return embedding;
-}
-
-export function stressLayout(
-  nodes: ERNodeModel[],
-  edges: EREdgeModel[],
-  ringOverride?: Map<string, number>,
-): void {
-  applySkeletonLayout(nodes, edges, { ringOverride });
 }

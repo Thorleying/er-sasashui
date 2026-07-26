@@ -1,5 +1,14 @@
 import type { EREdgeModel, ERNodeModel } from "../types";
 import { computeLayoutSizeScale } from "./sizeAwareGeometry";
+import {
+  TAU,
+  boxesOverlap,
+  diamondBoundary,
+  normalizeAngle,
+  rectBoundary,
+  safeNodeSize,
+  segmentHitsBox,
+} from "../layout/geometry";
 
 export interface Point {
   x: number;
@@ -19,52 +28,13 @@ export interface RelationshipSyncResult {
   affectedEntityIds: Set<string>;
 }
 
-const DEFAULT_SIZES: Record<string, NodeSize> = {
-  entity: { width: 120, height: 52 },
-  relationship: { width: 82, height: 52 },
-  attribute: { width: 90, height: 44 },
-};
-
-const FALLBACK_SIZE: NodeSize = { width: 80, height: 40 };
-const TAU = Math.PI * 2;
-
 const positionOf = (node: ERNodeModel): Point => ({
   x: typeof node.x === "number" ? node.x : 0,
   y: typeof node.y === "number" ? node.y : 0,
 });
 
-const fallbackSize = (node: ERNodeModel): NodeSize =>
-  DEFAULT_SIZES[String(node.nodeType ?? node.type ?? "")] ?? FALLBACK_SIZE;
-
-const safeSize = (node: ERNodeModel, sizeOf?: NodeSizeResolver): NodeSize => {
-  const measured = sizeOf?.(node) ?? fallbackSize(node);
-  const fallback = fallbackSize(node);
-  return {
-    width: Number.isFinite(measured.width) && measured.width > 0 ? measured.width : fallback.width,
-    height:
-      Number.isFinite(measured.height) && measured.height > 0 ? measured.height : fallback.height,
-  };
-};
-
-const rectBoundary = (rx: number, ry: number, ux: number, uy: number): number => {
-  const ax = Math.abs(ux);
-  const ay = Math.abs(uy);
-  if (ax < 1e-9) return ry;
-  if (ay < 1e-9) return rx;
-  return Math.min(rx / ax, ry / ay);
-};
-
-const diamondBoundary = (rx: number, ry: number, ux: number, uy: number): number => {
-  if (rx <= 0 || ry <= 0) return 0;
-  const denom = Math.abs(ux) / rx + Math.abs(uy) / ry;
-  return denom > 1e-9 ? 1 / denom : 0;
-};
-
-const normalizeAngle = (angle: number): number => {
-  let x = angle % TAU;
-  if (x < 0) x += TAU;
-  return x;
-};
+const safeSize = (node: ERNodeModel, sizeOf?: NodeSizeResolver): NodeSize =>
+  safeNodeSize(node, sizeOf?.(node));
 
 const centerDistance = (a: ERNodeModel, b: ERNodeModel): number => {
   const pa = positionOf(a);
@@ -85,42 +55,15 @@ const startPositionOf = (
   };
 };
 
-const boxesOverlap = (a: Point, as: NodeSize, b: Point, bs: NodeSize, gap = 0): boolean =>
-  Math.abs(a.x - b.x) < (as.width + bs.width) / 2 + gap &&
-  Math.abs(a.y - b.y) < (as.height + bs.height) / 2 + gap;
-
-const cross2 = (ax: number, ay: number, bx: number, by: number): number => ax * by - ay * bx;
-
-const segmentsIntersect = (a: Point, b: Point, c: Point, d: Point): boolean => {
-  const d1 = cross2(d.x - c.x, d.y - c.y, a.x - c.x, a.y - c.y);
-  const d2 = cross2(d.x - c.x, d.y - c.y, b.x - c.x, b.y - c.y);
-  const d3 = cross2(b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
-  const d4 = cross2(b.x - a.x, b.y - a.y, d.x - a.x, d.y - a.y);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-};
-
-const segmentHitsBox = (a: Point, b: Point, center: Point, size: NodeSize, inset = 0): boolean => {
-  const minX = center.x - size.width / 2 + inset;
-  const maxX = center.x + size.width / 2 - inset;
-  const minY = center.y - size.height / 2 + inset;
-  const maxY = center.y + size.height / 2 - inset;
-  if (minX >= maxX || minY >= maxY) return false;
-  if (a.x > minX && a.x < maxX && a.y > minY && a.y < maxY) return true;
-  if (b.x > minX && b.x < maxX && b.y > minY && b.y < maxY) return true;
-  return (
-    segmentsIntersect(a, b, { x: minX, y: minY }, { x: maxX, y: minY }) ||
-    segmentsIntersect(a, b, { x: maxX, y: minY }, { x: maxX, y: maxY }) ||
-    segmentsIntersect(a, b, { x: maxX, y: maxY }, { x: minX, y: maxY }) ||
-    segmentsIntersect(a, b, { x: minX, y: maxY }, { x: minX, y: minY })
-  );
-};
-
-function entityIdsForRelationship(
-  relId: string,
+/**
+ * Build the relationship-id → entity-ids adjacency in one pass over the edge
+ * list (previously every relationship re-scanned every edge, O(R×E)).
+ */
+function buildRelationshipEntityAdjacency(
   nodeById: Map<string, ERNodeModel>,
   edges: EREdgeModel[],
-): string[] {
-  const ids: string[] = [];
+): Map<string, string[]> {
+  const byRelationship = new Map<string, Set<string>>();
   edges.forEach((edge) => {
     if (edge.edgeType !== "entity-relationship" && edge.edgeType !== "relationship-entity") {
       return;
@@ -128,10 +71,20 @@ function entityIdsForRelationship(
     const source = nodeById.get(edge.source);
     const target = nodeById.get(edge.target);
     if (!source || !target) return;
-    if (source.id === relId && target.nodeType === "entity") ids.push(target.id);
-    if (target.id === relId && source.nodeType === "entity") ids.push(source.id);
+    const register = (relId: string, entityId: string) => {
+      if (!byRelationship.has(relId)) byRelationship.set(relId, new Set());
+      byRelationship.get(relId)!.add(entityId);
+    };
+    if (source.nodeType === "relationship" && target.nodeType === "entity") {
+      register(source.id, target.id);
+    }
+    if (target.nodeType === "relationship" && source.nodeType === "entity") {
+      register(target.id, source.id);
+    }
   });
-  return [...new Set(ids)];
+  const result = new Map<string, string[]>();
+  byRelationship.forEach((ids, relId) => result.set(relId, [...ids]));
+  return result;
 }
 
 function relationshipEdgeSegment(
@@ -214,12 +167,13 @@ export function computeMovedEntityRelationshipTargets(
   const sizeScale = computeLayoutSizeScale(nodes, sizeOf);
   const movedIds = new Set(movedEntityIds);
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const entityIdsByRelationship = buildRelationshipEntityAdjacency(nodeById, edges);
   const relationshipTargets = new Map<string, Point>();
   const affectedEntityIds = new Set<string>();
 
   nodes.forEach((relationship) => {
     if (relationship.nodeType !== "relationship") return;
-    const entityIds = entityIdsForRelationship(relationship.id, nodeById, edges);
+    const entityIds = entityIdsByRelationship.get(relationship.id) ?? [];
     if (!entityIds.some((id) => movedIds.has(id))) return;
 
     if (entityIds.length === 1) {
@@ -246,7 +200,26 @@ export function computeMovedEntityRelationshipTargets(
       );
       affectedEntityIds.add(entityA.id);
       affectedEntityIds.add(entityB.id);
+      return;
     }
+
+    // n 元关系（≥3 个实体）：菱形跟随相关实体的质心。
+    const entities = entityIds
+      .map((id) => nodeById.get(id))
+      .filter((entity): entity is ERNodeModel => !!entity);
+    if (entities.length < 3) return;
+    let cx = 0;
+    let cy = 0;
+    entities.forEach((entity) => {
+      const p = positionOf(entity);
+      cx += p.x;
+      cy += p.y;
+    });
+    relationshipTargets.set(relationship.id, {
+      x: cx / entities.length,
+      y: cy / entities.length,
+    });
+    entities.forEach((entity) => affectedEntityIds.add(entity.id));
   });
 
   return { relationshipTargets, affectedEntityIds };

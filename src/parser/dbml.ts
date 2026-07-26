@@ -23,7 +23,14 @@ import type {
   ParserWarning,
 } from "../types";
 
-const IDENT = String.raw`(?:\`[^\`]+\`|"[^"]+"|\[[^\]]+\]|[\w一-龥]+)`;
+// 裸词部分用 Unicode 属性类（\p{L}\p{N}\p{M}_$），日文假名 / 韩文谚文等
+// 标识符同样有效；使用处构造 RegExp 时必须带 `u` flag。
+// 注意不能用 String.raw：模板字面量里反引号必须写成 \`，raw 会把这个反斜杠
+// 保留下来，而 u 模式下 \` 是非法转义。
+const IDENT = '(?:`[^`]+`|"[^"]+"|\\[[^\\]]+\\]|[\\p{L}\\p{N}\\p{M}_$]+)';
+
+// 标识符字符（与 IDENT 的裸词字符类保持一致），用于词边界判断。
+const WORD_CHAR_RE = /[\p{L}\p{N}\p{M}_$]/u;
 // schema-qualified 标识符：a / a.b / a.b.c。每段都允许带引号 / 反引号 / 方括号。
 const QUALIFIED_IDENT = String.raw`${IDENT}(?:\.${IDENT})*`;
 
@@ -46,8 +53,6 @@ const pushWarning = (
 };
 
 const countNewlines = (s: string): number => (s.match(/\n/g) ?? []).length;
-
-const lineAt = (src: string, index: number): number => countNewlines(src.slice(0, index)) + 1;
 
 // 按 `.` 切分限定标识符，但 `.` 出现在引号 / 反引号 / 方括号 / 圆括号内部时不切。
 // => `"my.table"` 是一段而非两段；复合列 `(a, b)` 也保持完整。
@@ -455,7 +460,7 @@ interface ColumnLineResult {
 }
 
 const readLeadingIdentifier = (line: string): string | null => {
-  const m = line.trim().match(new RegExp(String.raw`^(${IDENT})(?:\s+|$)`));
+  const m = line.trim().match(new RegExp(String.raw`^(${IDENT})(?:\s+|$)`, "u"));
   return m ? cleanIdentifier(m[1]) : null;
 };
 
@@ -500,7 +505,7 @@ const parseColumnLine = (line: string): ColumnLineResult => {
   } else {
     head = trimmed;
   }
-  const m = head.match(new RegExp(String.raw`^(${IDENT})\s+([\s\S]+)$`));
+  const m = head.match(new RegExp(String.raw`^(${IDENT})\s+([\s\S]+)$`, "u"));
   if (!m) return { column: null, inlineRef: null };
   const name = cleanIdentifier(m[1]);
   const type = m[2].trim().replace(/\s+/g, " ");
@@ -643,7 +648,7 @@ const findNextKeyword = (src: string, from: number): number => {
       continue;
     }
     const prev = i > 0 ? src[i - 1] : "";
-    const isWordBoundary = !prev || !/[\w一-龥]/.test(prev);
+    const isWordBoundary = !prev || !WORD_CHAR_RE.test(prev);
     if (isWordBoundary && TOP_KEYWORD_RE.test(src.slice(i))) {
       return i;
     }
@@ -655,13 +660,41 @@ const findNextKeyword = (src: string, from: number): number => {
 const tableNameFromHeader = (header: string): string | null => {
   const head = parseTableHeader(header);
   if (head) return head.name;
-  const m = header.match(new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})`, "i"));
+  const m = header.match(new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})`, "iu"));
   return m ? cleanIdentifier(m[1]) : null;
 };
 
 const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[] => {
   const out: TopStatement[] = [];
   const n = src.length;
+
+  // 预建换行位置表，行号用二分查找求得。旧实现每次 slice(0, index) 数换行是
+  // O(n)，大文件（几百张表）上整个 tokenize 会退化成 O(n²)。
+  const newlinePositions: number[] = [];
+  for (let k = 0; k < n; k++) {
+    if (src[k] === "\n") newlinePositions.push(k);
+  }
+  const lineAt = (index: number): number => {
+    let lo = 0;
+    let hi = newlinePositions.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (newlinePositions[mid] < index) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo + 1;
+  };
+
+  const warnStrayLine = (header: string, startIdx: number): void => {
+    const snippet = header.length > 48 ? `${header.slice(0, 48)}…` : header;
+    pushWarning(
+      warnings,
+      "statement_skipped",
+      lineAt(startIdx),
+      `top-level line "${snippet}" was skipped because it is not a recognized statement`,
+    );
+  };
+
   let i = 0;
   while (i < n) {
     // 跳过未识别内容（注释残留、随手写的说明文字、占位符等）直到下一个关键字。
@@ -671,6 +704,7 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
 
     let braceIdx = -1;
     let lineEndIdx = -1;
+    let strayEndIdx = -1;
     let bracketDepth = 0;
     let seenOperator = false;
     let j = i;
@@ -700,14 +734,33 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
       if (bracketDepth === 0 && (ch === "<" || ch === ">" || ch === "-")) {
         seenOperator = true;
       }
-      if (ch === "\n" && bracketDepth === 0 && seenOperator) {
+      if (ch === "\n" && bracketDepth === 0) {
         const head = src.slice(startIdx, j).trim();
         if (/^Ref\b[^{]*:/i.test(head)) {
-          lineEndIdx = j;
-          break;
+          if (seenOperator) {
+            lineEndIdx = j;
+            break;
+          }
+          // 多行 Ref 短句：运算符尚未出现，继续扫描下一行。
+        } else {
+          // 非 Ref 头部遇到换行：只有下一个非空白字符是 '{'（块体换行开写）
+          // 才继续；否则这是一条顶层散行（如 `Note: '...'`），按行截断，
+          // 避免把下一个 Table 块整体吞成它的 body 而静默丢表。
+          let k = j + 1;
+          while (k < n && /\s/.test(src[k])) k++;
+          if (src[k] !== "{") {
+            strayEndIdx = j;
+            break;
+          }
         }
       }
       j++;
+    }
+
+    if (strayEndIdx !== -1) {
+      warnStrayLine(src.slice(startIdx, strayEndIdx).trim(), startIdx);
+      i = strayEndIdx + 1;
+      continue;
     }
 
     if (braceIdx !== -1) {
@@ -720,7 +773,7 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
           pushWarning(
             warnings,
             "statement_skipped",
-            lineAt(src, startIdx),
+            lineAt(startIdx),
             tableName
               ? `Table "${tableName}" was skipped because its block is not closed`
               : "Table block was skipped because its block is not closed",
@@ -733,8 +786,8 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
         kind: classifyHeader(header),
         header,
         body,
-        line: lineAt(src, startIdx),
-        bodyLine: lineAt(src, braceIdx + 1),
+        line: lineAt(startIdx),
+        bodyLine: lineAt(braceIdx + 1),
       });
       i = closeIdx + 1;
       continue;
@@ -747,7 +800,7 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
           kind: classifyHeader(header),
           header,
           body: null,
-          line: lineAt(src, startIdx),
+          line: lineAt(startIdx),
         });
       i = lineEndIdx + 1;
       continue;
@@ -755,13 +808,18 @@ const tokenizeTopLevel = (src: string, warnings: ParserWarning[]): TopStatement[
 
     // 文件尾部，无 '{'、无换行
     const header = src.slice(startIdx).trim();
-    if (header)
+    if (header) {
+      const kind = classifyHeader(header);
+      // 只有 Ref 短句能在无 body 的情况下被后续处理；其余头部在文件尾
+      // 落单等同顶层散行，同样发警告。
+      if (kind !== "ref") warnStrayLine(header, startIdx);
       out.push({
-        kind: classifyHeader(header),
+        kind,
         header,
         body: null,
-        line: lineAt(src, startIdx),
+        line: lineAt(startIdx),
       });
+    }
     break;
   }
   return out;
@@ -776,7 +834,7 @@ const parseTableHeader = (header: string): { name: string; alias?: string } | nu
     if (rb !== -1) h = (h.slice(0, lb) + " " + h.slice(rb + 1)).trim();
   }
   const m = h.match(
-    new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "i"),
+    new RegExp(String.raw`^Table\s+(${QUALIFIED_IDENT})(?:\s+as\s+(${IDENT}))?\s*$`, "iu"),
   );
   if (!m) return null;
   return {
@@ -803,35 +861,6 @@ const opToCardinality = (
     case ">":
     default:
       return { from: "N", to: "1" };
-  }
-};
-
-const addRelationship = (
-  ref: ParsedRefStatement,
-  relationships: ParsedRelationship[],
-  tableByName: Map<string, ParsedTable>,
-  relationshipLines: WeakMap<ParsedRelationship, number>,
-  line: number | undefined,
-): void => {
-  const card = opToCardinality(ref.op);
-  const relationship: ParsedRelationship = {
-    from: ref.from.table,
-    to: ref.to.table,
-    label: ref.from.column,
-    fromCardinality: card.from,
-    toCardinality: card.to,
-    ...(ref.comment ? { comment: ref.comment } : {}),
-  };
-  relationships.push(relationship);
-  if (line) relationshipLines.set(relationship, line);
-  const t = tableByName.get(ref.from.table);
-  if (t) {
-    t.foreignKeys = t.foreignKeys || [];
-    t.foreignKeys.push({
-      column: ref.from.column,
-      referencedTable: ref.to.table,
-      referencedColumn: ref.to.column,
-    });
   }
 };
 
@@ -921,7 +950,30 @@ export const parseDBML = (dbml: string): ParseResult => {
   const relationships: ParsedRelationship[] = [];
   const warnings: ParserWarning[] = [];
   const tableByName = new Map<string, ParsedTable>();
+  const definedTableNames = new Set<string>();
   const relationshipLines = new WeakMap<ParsedRelationship, number>();
+
+  // 关系与其来源 ref 的配对，供解析末尾统一做别名归一化与 FK 挂接
+  //（Ref / 别名都可以出现在被引用表定义之前，不能在落库当下就定死）。
+  const refRecords: Array<{ ref: ParsedRefStatement; relationship: ParsedRelationship }> = [];
+
+  const addRelationship = (ref: ParsedRefStatement, line: number | undefined): void => {
+    const card = opToCardinality(ref.op);
+    // `<` 时 FK 真正落在右侧表上，菱形标签也应取右侧（真实 FK）列；
+    // `<>` 多对多没有单侧 FK，标签沿用左侧列名。
+    const labelColumn = ref.op === "<" ? ref.to.column : ref.from.column;
+    const relationship: ParsedRelationship = {
+      from: ref.from.table,
+      to: ref.to.table,
+      label: labelColumn,
+      fromCardinality: card.from,
+      toCardinality: card.to,
+      ...(ref.comment ? { comment: ref.comment } : {}),
+    };
+    relationships.push(relationship);
+    if (line) relationshipLines.set(relationship, line);
+    refRecords.push({ ref, relationship });
+  };
 
   const cleanSrc = stripDbmlComments(dbml);
 
@@ -1056,8 +1108,19 @@ export const parseDBML = (dbml: string): ParseResult => {
         foreignKeys,
         ...(tableNote ? { comment: tableNote } : {}),
       };
+      if (definedTableNames.has(head.name)) {
+        pushWarning(
+          warnings,
+          "duplicate_table",
+          stmt.line,
+          `table "${head.name}" is defined more than once`,
+        );
+      }
+      definedTableNames.add(head.name);
       tables.push(table);
       tableByName.set(head.name, table);
+      // 别名同样入索引：`Table orders as O` 之后 `Ref: O.x > ...` 才能命中。
+      if (head.alias) tableByName.set(head.alias, table);
       inlineRefs.forEach((ref) => {
         addRelationship(
           {
@@ -1065,9 +1128,6 @@ export const parseDBML = (dbml: string): ParseResult => {
             to: ref.target,
             op: ref.op,
           },
-          relationships,
-          tableByName,
-          relationshipLines,
           ref.line,
         );
       });
@@ -1079,9 +1139,14 @@ export const parseDBML = (dbml: string): ParseResult => {
       if (colon === -1) continue;
       const ref = parseRefBody(stmt.header.slice(colon + 1));
       if (ref) {
-        addRelationship(ref, relationships, tableByName, relationshipLines, stmt.line);
+        addRelationship(ref, stmt.line);
       } else {
-        pushWarning(warnings, "foreign_key_unrecognized", stmt.line, "ref statement was not recognized");
+        pushWarning(
+          warnings,
+          "foreign_key_unrecognized",
+          stmt.line,
+          "ref statement was not recognized",
+        );
       }
       continue;
     }
@@ -1090,7 +1155,7 @@ export const parseDBML = (dbml: string): ParseResult => {
       for (const entry of splitLogicalLineEntries(stmt.body, stmt.bodyLine ?? stmt.line)) {
         const ref = parseRefBody(entry.text);
         if (ref) {
-          addRelationship(ref, relationships, tableByName, relationshipLines, entry.line);
+          addRelationship(ref, entry.line);
         } else {
           pushWarning(
             warnings,
@@ -1103,6 +1168,28 @@ export const parseDBML = (dbml: string): ParseResult => {
       continue;
     }
     // enum / project / tablegroup / unknown：忽略
+  }
+
+  // 关系两端归一化（别名 → 真实表名），并把 FK 挂到真正持有它的表上。
+  // 放在所有语句解析完之后：Ref / 别名可以出现在被引用表定义之前，
+  // 立刻处理会漏掉后声明的表。
+  for (const { ref, relationship } of refRecords) {
+    const fromTable = tableByName.get(ref.from.table);
+    const toTable = tableByName.get(ref.to.table);
+    if (fromTable) relationship.from = fromTable.name;
+    if (toTable) relationship.to = toTable.name;
+    if (ref.op === "<>") continue; // 多对多：没有单侧 FK
+    const holderTable = ref.op === "<" ? toTable : fromTable;
+    const holderColumn = ref.op === "<" ? ref.to.column : ref.from.column;
+    const referencedTable = ref.op === "<" ? relationship.from : relationship.to;
+    const referencedColumn = ref.op === "<" ? ref.from.column : ref.to.column;
+    if (holderTable) {
+      holderTable.foreignKeys.push({
+        column: holderColumn,
+        referencedTable,
+        referencedColumn,
+      });
+    }
   }
 
   for (const rel of relationships) {

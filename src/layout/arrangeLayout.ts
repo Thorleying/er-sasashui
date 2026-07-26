@@ -8,49 +8,55 @@
 
 import { animateNodesToTargets, smoothFitView } from "./animation";
 import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
+import {
+  diamondBoundary,
+  ellipseBoundary,
+  normalizeAngle,
+  rectBoundary,
+  segmentsCross,
+} from "./geometry";
+import { buildGrid, forEachNeighbor } from "./spatialGrid";
 import type { GraphLike, GraphNodeLike } from "../types";
 
-// ---- Spatial grid helpers (near-linear neighbor queries) ----
-const buildGrid = (items, cellSize) => {
-  const grid = new Map();
-  items.forEach((item) => {
-    const cx = Math.floor(item.pos.x / cellSize);
-    const cy = Math.floor(item.pos.y / cellSize);
-    const key = cx + "," + cy;
-    let bucket = grid.get(key);
-    if (!bucket) {
-      bucket = [];
-      grid.set(key, bucket);
-    }
-    bucket.push(item);
-  });
-  return grid;
-};
+// 2-opt 交叉消除的实体数上限：超过后 O(V²) 的交换枚举收益低、成本高。
+const MAX_TWO_OPT_ENTITIES = 40;
 
-const forEachNeighbor = (grid, cellSize, item, cb) => {
-  const cx = Math.floor(item.pos.x / cellSize);
-  const cy = Math.floor(item.pos.y / cellSize);
-  for (let ox = -1; ox <= 1; ox++) {
-    for (let oy = -1; oy <= 1; oy++) {
-      const bucket = grid.get(cx + ox + "," + (cy + oy));
-      if (!bucket) continue;
-      for (let k = 0; k < bucket.length; k++) cb(bucket[k]);
+// ---- 网格复用：位置漂移未超过阈值时不重建网格 ----
+interface GridItem {
+  id: string;
+  pos: { x: number; y: number };
+}
+
+class ReusableGrid<T extends GridItem> {
+  private grid: Map<string, T[]> | null = null;
+  private builtAt = new Map<string, { x: number; y: number }>();
+
+  constructor(private cellSize: number) {}
+
+  ensure(items: T[]): Map<string, T[]> {
+    const threshold = this.cellSize / 4;
+    let stale = !this.grid || this.builtAt.size !== items.length;
+    if (!stale) {
+      for (let i = 0; i < items.length; i++) {
+        const built = this.builtAt.get(items[i].id);
+        if (
+          !built ||
+          Math.abs(built.x - items[i].pos.x) > threshold ||
+          Math.abs(built.y - items[i].pos.y) > threshold
+        ) {
+          stale = true;
+          break;
+        }
+      }
     }
+    if (stale) {
+      this.grid = buildGrid(items, this.cellSize);
+      this.builtAt.clear();
+      items.forEach((item) => this.builtAt.set(item.id, { x: item.pos.x, y: item.pos.y }));
+    }
+    return this.grid!;
   }
-};
-
-// ---- Segment-intersection test for crossing detection ----
-const segmentsCross = (a1, a2, b1, b2) => {
-  // Proper-intersection test. Shared endpoints count as not crossing.
-  const share = (p, q) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
-  if (share(a1, b1) || share(a1, b2) || share(a2, b1) || share(a2, b2)) return false;
-  const cross = (ox, oy, px, py, qx, qy) => (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
-  const d1 = cross(b1.x, b1.y, b2.x, b2.y, a1.x, a1.y);
-  const d2 = cross(b1.x, b1.y, b2.x, b2.y, a2.x, a2.y);
-  const d3 = cross(a1.x, a1.y, a2.x, a2.y, b1.x, b1.y);
-  const d4 = cross(a1.x, a1.y, a2.x, a2.y, b2.x, b2.y);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-};
+}
 
 /**
  * 环绕排布布局：让属性均匀围绕实体，同时可移动实体以满足关系距离
@@ -89,42 +95,9 @@ export const arrangeLayout = (graph: GraphLike) => {
     return Math.sqrt(bbox.width * bbox.width + bbox.height * bbox.height) / 2;
   };
 
-  // 轴向最大半径：max(width, height) / 2。
-  // 用作切向间隔的最坏估计（attr 在轨道任意角度上沿切线最大延伸）。
-  const getAxisMax = (node) => {
+  const getHalfExtents = (node): { hw: number; hh: number } => {
     const bbox = node.getBBox();
-    return Math.max(bbox.width, bbox.height) / 2;
-  };
-
-  // 轴对齐矩形在方向 (cosθ, sinθ) 的边界距离。
-  // 圆形轨道把矩形当成"半径=对角线"的圆，导致正上方/正下方等
-  // 非对角方向白白多算很多空隙。用真实边界后，每个方向都贴得很近。
-  const rectBoundary = (rx: number, ry: number, cosT: number, sinT: number) => {
-    const ac = Math.abs(cosT);
-    const as = Math.abs(sinT);
-    if (ac < 1e-9) return ry;
-    if (as < 1e-9) return rx;
-    return Math.min(rx / ac, ry / as);
-  };
-
-  // 轴对齐椭圆在方向 (cosθ, sinθ) 的边界距离。
-  const ellipseBoundary = (rx: number, ry: number, cosT: number, sinT: number) => {
-    if (rx <= 0 || ry <= 0) return 0;
-    const denom = Math.sqrt(ry * ry * cosT * cosT + rx * rx * sinT * sinT);
-    return denom > 1e-9 ? (rx * ry) / denom : 0;
-  };
-
-  // 菱形 |x|/rx + |y|/ry = 1 在方向 (cosθ, sinθ) 上的边界距离。
-  const diamondBoundary = (rx: number, ry: number, cosT: number, sinT: number) => {
-    if (rx <= 0 || ry <= 0) return 0;
-    const denom = Math.abs(cosT) / rx + Math.abs(sinT) / ry;
-    return denom > 1e-9 ? 1 / denom : 0;
-  };
-
-  const normalizeAngle = (a) => {
-    let angle = a % (Math.PI * 2);
-    if (angle < 0) angle += Math.PI * 2;
-    return angle;
+    return { hw: bbox.width / 2, hh: bbox.height / 2 };
   };
 
   // 建立关系节点与实体节点的对应
@@ -187,7 +160,6 @@ export const arrangeLayout = (graph: GraphLike) => {
   // 给属性至少 π rad 的可用角度。
   const gapAngle = 1.3;
   const adaptiveGap = (K: number) => (K > 0 ? Math.min(gapAngle, Math.PI / K) : gapAngle);
-  const halfGap = gapAngle / 2; // 仅作为 1-binRel 默认；实际放置使用 entity 自己的
 
   // 计算每个实体的统一环绕半径
   const baseRing = new Map<string, number>();
@@ -206,7 +178,6 @@ export const arrangeLayout = (graph: GraphLike) => {
   entityInfo.forEach((info) => {
     const id = info.node.getModel().id;
     const entityRadius = getRadius(info.node); // bbox 圆，仅用于 collision 估计
-    const entityAxisMax = getAxisMax(info.node); // 轴向半径
     const ebbox = info.node.getBBox();
     const ehx = ebbox.width / 2;
     const ehy = ebbox.height / 2;
@@ -224,8 +195,6 @@ export const arrangeLayout = (graph: GraphLike) => {
 
     const maxSatelliteRadius =
       orbitalCount > 0 ? Math.max(...orbitalSatellites.map((s) => getRadius(s.node))) : 0;
-    const maxSatAxisMax =
-      orbitalCount > 0 ? Math.max(...orbitalSatellites.map((s) => getAxisMax(s.node))) : 0;
     // 轨道半径用 *最大* 卫星的 (rx, ry)；同一实体内不同卫星共享 r(θ) 的"形状"
     let ohx = 0,
       ohy = 0;
@@ -493,6 +462,13 @@ export const arrangeLayout = (graph: GraphLike) => {
     ? Math.max(...entityIds.map((id) => systemRadius.get(id) || 60))
     : 80;
   const entityCellSize = Math.max(gap(120), maxSysR * 2 + safeGap);
+  // 迭代间复用同一批 item（pos 引用 entityPositions 的可变对象）与网格。
+  const entityItems = entityIds.map((id) => ({
+    id,
+    pos: entityPositions.get(id),
+    r: systemRadius.get(id),
+  }));
+  const entityGridCache = new ReusableGrid<(typeof entityItems)[number]>(entityCellSize);
 
   for (let iter = 0; iter < 300; iter++) {
     let maxMove = 0;
@@ -542,13 +518,8 @@ export const arrangeLayout = (graph: GraphLike) => {
       maxMove = Math.max(maxMove, Math.abs(move));
     });
 
-    // 2. 全局斥力：网格近邻查找，O(n) 期望
-    const entityItems = entityIds.map((id) => ({
-      id,
-      pos: entityPositions.get(id),
-      r: systemRadius.get(id),
-    }));
-    const grid = buildGrid(entityItems, entityCellSize);
+    // 2. 全局斥力：网格近邻查找，O(n) 期望；位置漂移不大时复用上一轮网格
+    const grid = entityGridCache.ensure(entityItems);
 
     for (let i = 0; i < entityItems.length; i++) {
       const a = entityItems[i];
@@ -668,9 +639,46 @@ export const arrangeLayout = (graph: GraphLike) => {
     return total;
   };
 
-  if (relationshipPairs.length >= 2 && entityIds.length >= 2) {
+  if (
+    relationshipPairs.length >= 2 &&
+    entityIds.length >= 2 &&
+    entityIds.length <= MAX_TWO_OPT_ENTITIES
+  ) {
     let currentCrossings = countCrossings();
     if (currentCrossings > 0) {
+      // 增量评估：交换两个实体只改变与它们关联的段。只统计"受影响段 ×
+      // 其它所有段"的交叉数，交换前后之差即全局交叉数变化量。
+      const pairIndicesByEntity = new Map<string, number[]>();
+      relationshipPairs.forEach((pair, index) => {
+        [pair.idA, pair.idB].forEach((id) => {
+          if (!pairIndicesByEntity.has(id)) pairIndicesByEntity.set(id, []);
+          pairIndicesByEntity.get(id).push(index);
+        });
+      });
+
+      const crossingsInvolving = (affected: number[], affectedSet: Set<number>): number => {
+        let total = 0;
+        for (let ai = 0; ai < affected.length; ai++) {
+          const i = affected[ai];
+          const pi = relationshipPairs[i];
+          const a1 = entityPositions.get(pi.idA);
+          const a2 = entityPositions.get(pi.idB);
+          if (!a1 || !a2) continue;
+          for (let j = 0; j < relationshipPairs.length; j++) {
+            if (j === i) continue;
+            if (affectedSet.has(j) && j < i) continue; // 受影响对之间只数一次
+            const pj = relationshipPairs[j];
+            if (pi.idA === pj.idA || pi.idA === pj.idB || pi.idB === pj.idA || pi.idB === pj.idB)
+              continue;
+            const b1 = entityPositions.get(pj.idA);
+            const b2 = entityPositions.get(pj.idB);
+            if (!b1 || !b2) continue;
+            if (segmentsCross(a1, a2, b1, b2)) total++;
+          }
+        }
+        return total;
+      };
+
       const maxSwapPasses = 8;
       for (let pass = 0; pass < maxSwapPasses && currentCrossings > 0; pass++) {
         let improved = false;
@@ -681,6 +689,13 @@ export const arrangeLayout = (graph: GraphLike) => {
             const pa = entityPositions.get(idA);
             const pb = entityPositions.get(idB);
             if (!pa || !pb) continue;
+            const affectedSet = new Set<number>([
+              ...(pairIndicesByEntity.get(idA) ?? []),
+              ...(pairIndicesByEntity.get(idB) ?? []),
+            ]);
+            if (!affectedSet.size) continue; // 不接触任何关系段，交换不可能改善
+            const affected = [...affectedSet].sort((x, y) => x - y);
+            const before = crossingsInvolving(affected, affectedSet);
             // 试交换
             const tmpX = pa.x,
               tmpY = pa.y;
@@ -688,11 +703,11 @@ export const arrangeLayout = (graph: GraphLike) => {
             pa.y = pb.y;
             pb.x = tmpX;
             pb.y = tmpY;
-            const newCrossings = countCrossings();
-            if (newCrossings < currentCrossings) {
-              currentCrossings = newCrossings;
+            const after = crossingsInvolving(affected, affectedSet);
+            if (after < before) {
+              currentCrossings += after - before;
               improved = true;
-              if (currentCrossings === 0) break;
+              if (currentCrossings <= 0) break;
             } else {
               // 回滚
               pb.x = pa.x;
@@ -749,16 +764,11 @@ export const arrangeLayout = (graph: GraphLike) => {
   // 实体目标位置
   entityPositions.forEach((pos, id) => targets.set(id, { ...pos }));
 
-  const entityOrbitRadius = new Map();
-
   // 统一布局所有卫星节点
   entityInfo.forEach((info) => {
     const { node, satellites } = info;
     const model = node.getModel();
     const center = entityPositions.get(model.id) || { x: model.x, y: model.y };
-
-    const ringRadius = baseRing.get(model.id);
-    entityOrbitRadius.set(model.id, ringRadius);
 
     if (!satellites.length) return;
 
@@ -803,13 +813,38 @@ export const arrangeLayout = (graph: GraphLike) => {
 
     if (!orbitalSatellites.length) return;
 
-    const sortedSatellites = orbitalSatellites.slice().sort((a, b) => {
+    let sortedSatellites = orbitalSatellites.slice().sort((a, b) => {
       const ma = a.node.getModel();
       const mb = b.node.getModel();
       const angleA = normalizeAngle(Math.atan2(ma.y - center.y, ma.x - center.x));
       const angleB = normalizeAngle(Math.atan2(mb.y - center.y, mb.x - center.x));
       return angleA - angleB;
     });
+
+    // 槽位分配从首个 segment 的起点开始，而 sortedSatellites 从绝对角 0
+    // 开始——起点不对齐会让整圈属性一起"跳位"。把卫星序列循环移位到
+    // 沿正方向最先到达首个 segment 起点的那个卫星，保持相对顺序不变。
+    if (segments.length && sortedSatellites.length > 1) {
+      const firstStart = normalizeAngle(segments[0].start);
+      let bestIdx = 0;
+      let bestDelta = Infinity;
+      sortedSatellites.forEach((s, idx) => {
+        const m = s.node.getModel();
+        const angle = normalizeAngle(Math.atan2(m.y - center.y, m.x - center.x));
+        let delta = angle - firstStart;
+        if (delta < 0) delta += Math.PI * 2;
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          bestIdx = idx;
+        }
+      });
+      if (bestIdx > 0) {
+        sortedSatellites = [
+          ...sortedSatellites.slice(bestIdx),
+          ...sortedSatellites.slice(0, bestIdx),
+        ];
+      }
+    }
 
     const totalCount = sortedSatellites.length;
     const totalAngle = segments.reduce((sum, s) => sum + (s.end - s.start), 0);
@@ -938,8 +973,8 @@ export const arrangeLayout = (graph: GraphLike) => {
     const px = -ny;
     const py = nx;
 
-    const baseX = targets.get(sample.relNode.getModel().id)?.x || (posA.x + posB.x) / 2;
-    const baseY = targets.get(sample.relNode.getModel().id)?.y || (posA.y + posB.y) / 2;
+    const baseX = targets.get(sample.relNode.getModel().id)?.x ?? (posA.x + posB.x) / 2;
+    const baseY = targets.get(sample.relNode.getModel().id)?.y ?? (posA.y + posB.y) / 2;
     const maxRadius = Math.max(...list.map((item) => item.relRadius));
     const offsetStep = maxRadius * 2 + gap(16);
 
@@ -975,16 +1010,17 @@ export const arrangeLayout = (graph: GraphLike) => {
       ? Math.max(...relIdArr.map((id) => relRadii.get(id) || 30))
       : 30;
     const relCellSize = Math.max(gap(60), maxRelR * 2 + gap(14));
+    const relItems = relIdArr.map((id) => ({
+      id,
+      pos: relPositions.get(id),
+      r: relRadii.get(id) || 30,
+    }));
+    const relGridCache = new ReusableGrid<(typeof relItems)[number]>(relCellSize);
 
     for (let iter = 0; iter < 80; iter++) {
       let moved = 0;
 
-      const relItems = relIdArr.map((id) => ({
-        id,
-        pos: relPositions.get(id),
-        r: relRadii.get(id) || 30,
-      }));
-      const relGrid = buildGrid(relItems, relCellSize);
+      const relGrid = relGridCache.ensure(relItems);
 
       for (let i = 0; i < relItems.length; i++) {
         const a = relItems[i];
@@ -1053,17 +1089,18 @@ export const arrangeLayout = (graph: GraphLike) => {
     });
   }
 
-  // 全局防重叠 (网格加速)
+  // 全局防重叠 (网格加速)。使用 AABB 最小重叠轴分离（与 autoAvoid 的
+  // 矩形分离口径一致）：外接圆会把宽实体沿对角方向推得过散。
   const applyGlobalSeparation = () => {
     const allNodes = graph.getNodes();
     const lockedCoreIds = new Set([
       ...entityNodes.map((n) => n.getModel().id),
       ...relationshipNodes.map((n) => n.getModel().id),
     ]);
-    const metaArr = allNodes.map((n) => ({
-      id: n.getModel().id,
-      r: getRadius(n),
-    }));
+    const metaArr = allNodes.map((n) => {
+      const { hw, hh } = getHalfExtents(n);
+      return { id: n.getModel().id, hw, hh };
+    });
     metaArr.forEach((m) => {
       if (!targets.has(m.id)) {
         const model = graph.findById(m.id)?.getModel();
@@ -1074,18 +1111,20 @@ export const arrangeLayout = (graph: GraphLike) => {
       }
     });
 
-    const maxR = metaArr.length ? Math.max(...metaArr.map((m) => m.r)) : 30;
-    const cellSize = Math.max(gap(40), maxR * 2 + gap(8));
+    const maxHalf = metaArr.length ? Math.max(...metaArr.map((m) => Math.max(m.hw, m.hh))) : 30;
+    const cellSize = Math.max(gap(40), maxHalf * 2 + gap(8));
+    const items = metaArr.map((m) => ({
+      id: m.id,
+      hw: m.hw,
+      hh: m.hh,
+      pos: targets.get(m.id),
+    }));
+    const gridCache = new ReusableGrid<(typeof items)[number]>(cellSize);
 
     for (let iter = 0; iter < 400; iter++) {
       let maxMove = 0;
 
-      const items = metaArr.map((m) => ({
-        id: m.id,
-        r: m.r,
-        pos: targets.get(m.id),
-      }));
-      const grid = buildGrid(items, cellSize);
+      const grid = gridCache.ensure(items);
 
       for (let i = 0; i < items.length; i++) {
         const a = items[i];
@@ -1093,25 +1132,34 @@ export const arrangeLayout = (graph: GraphLike) => {
           if (b.id <= a.id) return;
           const dx = b.pos.x - a.pos.x;
           const dy = b.pos.y - a.pos.y;
-          let dist = Math.hypot(dx, dy);
-          if (dist === 0) dist = 0.01;
-          const minDist = a.r + b.r + gap(8);
-          if (dist < minDist) {
-            const overlap = minDist - dist;
-            const aLocked = lockedCoreIds.has(a.id);
-            const bLocked = lockedCoreIds.has(b.id);
-            if (aLocked && bLocked) return;
-            const pushA = aLocked ? 0 : overlap / (bLocked ? 1 : 2);
-            const pushB = bLocked ? 0 : overlap / (aLocked ? 1 : 2);
-            const nx = dx / dist;
-            const ny = dy / dist;
-            a.pos.x -= nx * pushA;
-            a.pos.y -= ny * pushA;
-            b.pos.x += nx * pushB;
-            b.pos.y += ny * pushB;
-            const push = Math.max(pushA, pushB);
-            if (push > maxMove) maxMove = push;
+          const overlapX = a.hw + b.hw + gap(8) - Math.abs(dx);
+          const overlapY = a.hh + b.hh + gap(8) - Math.abs(dy);
+          if (overlapX <= 0 || overlapY <= 0) return;
+
+          const aLocked = lockedCoreIds.has(a.id);
+          const bLocked = lockedCoreIds.has(b.id);
+          // 双 locked（两个实体/菱形彼此重叠）也要兜底分开：各推一半，
+          // 否则这对节点会永远叠死在一起。
+          const bothLocked = aLocked && bLocked;
+          const shareA = bothLocked ? 0.5 : aLocked ? 0 : bLocked ? 1 : 0.5;
+          const shareB = bothLocked ? 0.5 : bLocked ? 0 : aLocked ? 1 : 0.5;
+
+          const separateX = overlapX <= overlapY;
+          const rawDelta = separateX ? dx : dy;
+          const sign = Math.abs(rawDelta) > 1e-6 ? Math.sign(rawDelta) : a.id < b.id ? 1 : -1;
+          const amount = separateX ? overlapX : overlapY;
+          const pushA = amount * shareA;
+          const pushB = amount * shareB;
+
+          if (separateX) {
+            a.pos.x -= sign * pushA;
+            b.pos.x += sign * pushB;
+          } else {
+            a.pos.y -= sign * pushA;
+            b.pos.y += sign * pushB;
           }
+          const push = Math.max(pushA, pushB);
+          if (push > maxMove) maxMove = push;
         });
       }
       if (maxMove < 0.3) break;
@@ -1120,7 +1168,8 @@ export const arrangeLayout = (graph: GraphLike) => {
 
   applyGlobalSeparation();
 
-  animateNodesToTargets(graph, targets, 850, () => {
+  animateNodesToTargets(graph, targets, 850, (info) => {
+    if (info?.cancelled) return;
     smoothFitView(graph, 800, "easeOutCubic");
   });
 };

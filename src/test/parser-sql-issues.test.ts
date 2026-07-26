@@ -260,16 +260,14 @@ describe("parseSQLTables — parser warnings", () => {
       expect.arrayContaining([
         expect.stringContaining('line 4: column "customer_id" in table "orders" has no type'),
         expect.stringContaining('line 5: foreign key in table "orders" was not recognized'),
-        expect.stringContaining(
-          'line 6: constraint "ck_orders" in table "orders" was skipped',
-        ),
-        expect.stringContaining(
-          'line 10: table "child" references missing table "missing_parent"',
-        ),
+        expect.stringContaining('line 6: constraint "ck_orders" in table "orders" was skipped'),
+        expect.stringContaining('line 10: table "child" references missing table "missing_parent"'),
         expect.stringContaining(
           'line 12: CREATE TABLE "copy" LIKE source "missing_template" was not found',
         ),
-        expect.stringContaining('line 13: ALTER TABLE "ghost" skipped because the table was not found'),
+        expect.stringContaining(
+          'line 13: ALTER TABLE "ghost" skipped because the table was not found',
+        ),
       ]),
     );
   });

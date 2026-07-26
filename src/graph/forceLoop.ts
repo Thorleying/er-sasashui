@@ -1,6 +1,7 @@
 import type { GraphLike } from "../types";
 import { measureNodeSize } from "../builder";
 import { computeLayoutSizeScale } from "./sizeAwareGeometry";
+import { buildGrid, forEachNeighbor } from "../layout/spatialGrid";
 
 interface ForceableGraph extends GraphLike {
   on(event: string, handler: (e: any) => void): void;
@@ -17,6 +18,13 @@ interface NodeMetrics {
   height: number;
   componentRadius: number;
 }
+
+// 结构性缓存刷新周期（帧）。邻接表 / 节点尺寸 / sizeScale 在开关打开时
+// 缓存一次；每帧只做轻量校验（节点数 / 边数变化立即重建），每隔该周期
+// 做一次兜底全量刷新，覆盖"标签被双击改名导致 bbox 变化"这类场景。
+const STRUCTURE_REFRESH_FRAMES = 30;
+// 组件斥力掩码刷新周期（帧）：O(n²)，无需每帧重算。
+const COMPONENT_MASK_REFRESH_FRAMES = 24;
 
 // 持续力导向控制器
 // 不依赖 G6 自带 layout tick（首次收敛后就不再跑），而是自写一个轻量
@@ -168,108 +176,185 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
     return adj;
   };
 
+  // ---- 帧间缓存：结构 / 尺寸 / 组件掩码 ----
+  interface StructureCache {
+    adj: Map<string, Set<string>>;
+    nodeMetrics: Record<string, NodeMetrics>;
+    sizeScale: number;
+    maxHalfExtent: number;
+    nodeCount: number;
+    edgeCount: number;
+  }
+  let structure: StructureCache | null = null;
+  let framesSinceStructure = 0;
+  let repelMask: Map<string, Set<string>> | null = null;
+  let framesSinceMask = 0;
+
+  const invalidateCaches = () => {
+    structure = null;
+    repelMask = null;
+    framesSinceStructure = 0;
+    framesSinceMask = 0;
+  };
+
+  const rebuildStructure = (nodes: ReturnType<ForceableGraph["getNodes"]>): StructureCache => {
+    const nodeMetrics: Record<string, NodeMetrics> = {};
+    let maxHalfExtent = 0;
+    nodes.forEach((n) => {
+      const m = n.getModel() as any;
+      const metric = metrics(n);
+      nodeMetrics[m.id] = metric;
+      maxHalfExtent = Math.max(maxHalfExtent, metric.width / 2, metric.height / 2);
+    });
+    const sizeScale = computeLayoutSizeScale(
+      nodes.map((node) => node.getModel()),
+      (node) => nodeMetrics[node.id],
+    );
+    return {
+      adj: buildAdj(),
+      nodeMetrics,
+      sizeScale,
+      maxHalfExtent,
+      nodeCount: nodes.length,
+      edgeCount: graph.getEdges().length,
+    };
+  };
+
   const step = () => {
     if (!graph || graph.destroyed || !enabled) {
       raf = null;
       return;
     }
 
-    const adj = buildAdj();
     const nodes = graph.getNodes();
+    const edgeCount = graph.getEdges().length;
+    if (
+      !structure ||
+      structure.nodeCount !== nodes.length ||
+      structure.edgeCount !== edgeCount ||
+      framesSinceStructure >= STRUCTURE_REFRESH_FRAMES
+    ) {
+      structure = rebuildStructure(nodes);
+      framesSinceStructure = 0;
+      repelMask = null;
+    } else {
+      framesSinceStructure++;
+    }
+    const { adj, nodeMetrics, sizeScale, maxHalfExtent } = structure;
+
     const pos: Record<string, { x: number; y: number }> = {};
-    const nodeMetrics: Record<string, NodeMetrics> = {};
     nodes.forEach((n) => {
       const m = n.getModel() as any;
       pos[m.id] = { x: m.x || 0, y: m.y || 0 };
-      nodeMetrics[m.id] = metrics(n);
     });
-
     const ids = Object.keys(pos);
-    const sizeScale = computeLayoutSizeScale(
-      nodes.map((node) => node.getModel()),
-      (node) => nodeMetrics[node.id],
-    );
-    const skippedCrossComponentRepulsion = buildComponentRepelMask(
-      ids,
-      adj,
-      pos,
-      nodeMetrics,
-      sizeScale,
-    );
+
+    if (!repelMask || framesSinceMask >= COMPONENT_MASK_REFRESH_FRAMES) {
+      repelMask = buildComponentRepelMask(ids, adj, pos, nodeMetrics, sizeScale);
+      framesSinceMask = 0;
+    } else {
+      framesSinceMask++;
+    }
+    const skippedCrossComponentRepulsion = repelMask;
+
     const IDEAL = 130 * sizeScale;
     const K_ATTRACT = 0.04;
     const K_REPEL = 9000 * sizeScale * sizeScale * sizeScale;
     const DAMPING = 0.78;
     const MAX_V = 16 * sizeScale;
 
+    // 斥力近邻化：超出 cutoff 的远处节点 K_REPEL/d² 已可忽略，用网格把
+    // 每个节点的斥力邻居限制在 3×3 相邻格子内。cutoff 覆盖最大可能的
+    // minD（两个最宽节点相贴）+ 缓冲，保证近距离排斥/防重叠行为不变。
+    const repelCutoff = Math.max(2 * maxHalfExtent + 68 * sizeScale, 160 * sizeScale);
+    const gridItems = ids.map((id) => ({ id, pos: pos[id] }));
+    const repelGrid = buildGrid(gridItems, repelCutoff);
+
     // easeOutCubic：第一帧位移≈0，第 WARMUP_TOTAL 帧及之后位移=正常
     const t = warmupRemaining > 0 ? 1 - warmupRemaining / WARMUP_TOTAL : 1;
     const ramp = 1 - Math.pow(1 - t, 3);
     if (warmupRemaining > 0) warmupRemaining--;
 
-    nodes.forEach((n) => {
-      const m = n.getModel() as any;
-      const id = m.id as string;
-      if (id === pinnedId) return;
-      const p = pos[id];
-      const metric = nodeMetrics[id];
-      let fx = 0;
-      let fy = 0;
+    const canBatchPaint =
+      typeof (graph as any).setAutoPaint === "function" &&
+      typeof (graph as any).paint === "function";
+    if (canBatchPaint) graph.setAutoPaint(false);
+    let painted = false;
+    try {
+      nodes.forEach((n) => {
+        const m = n.getModel() as any;
+        const id = m.id as string;
+        if (id === pinnedId) return;
+        const p = pos[id];
+        const metric = nodeMetrics[id];
+        if (!metric) return;
+        let fx = 0;
+        let fy = 0;
 
-      // 斥力：所有其它节点
-      for (let i = 0; i < ids.length; i++) {
-        const oid = ids[i];
-        if (oid === id) continue;
-        if (skippedCrossComponentRepulsion.get(id)?.has(oid)) continue;
-        const op = pos[oid];
-        const dx = p.x - op.x;
-        const dy = p.y - op.y;
-        let d2 = dx * dx + dy * dy;
-        if (d2 < sizeScale * sizeScale) d2 = sizeScale * sizeScale;
-        const d = Math.sqrt(d2);
-        const ux = dx / d;
-        const uy = dy / d;
-        const minD =
-          directionalRadius(metric, ux, uy) +
-          directionalRadius(nodeMetrics[oid], -ux, -uy) +
-          8 * sizeScale;
-        const mag = K_REPEL / d2 + (d < minD ? (minD - d) * 0.8 : 0);
-        fx += ux * mag;
-        fy += uy * mag;
-      }
-
-      // 引力：连边邻居
-      const nb = adj.get(id);
-      if (nb) {
-        nb.forEach((nid) => {
-          const op = pos[nid];
-          if (!op) return;
-          const dx = op.x - p.x;
-          const dy = op.y - p.y;
-          const d = Math.sqrt(dx * dx + dy * dy) || 1;
-          const delta = (d - IDEAL) * K_ATTRACT;
-          fx += (dx / d) * delta;
-          fy += (dy / d) * delta;
+        // 斥力：网格近邻节点
+        forEachNeighbor(repelGrid, repelCutoff, { pos: p }, (other) => {
+          const oid = other.id;
+          if (oid === id) return;
+          if (skippedCrossComponentRepulsion!.get(id)?.has(oid)) return;
+          const op = other.pos;
+          const dx = p.x - op.x;
+          const dy = p.y - op.y;
+          let d2 = dx * dx + dy * dy;
+          if (d2 < sizeScale * sizeScale) d2 = sizeScale * sizeScale;
+          const d = Math.sqrt(d2);
+          const ux = dx / d;
+          const uy = dy / d;
+          const otherMetric = nodeMetrics[oid];
+          if (!otherMetric) return;
+          const minD =
+            directionalRadius(metric, ux, uy) +
+            directionalRadius(otherMetric, -ux, -uy) +
+            8 * sizeScale;
+          const mag = K_REPEL / d2 + (d < minD ? (minD - d) * 0.8 : 0);
+          fx += ux * mag;
+          fy += uy * mag;
         });
-      }
 
-      const v = velocities.get(id) || { vx: 0, vy: 0 };
-      // 冷启动阶段把净力按 ramp 缩小：速度积累得慢，等阻尼把过冲压住后
-      // 再放开到完整力度。稳态时 ramp=1，行为不变。
-      v.vx = (v.vx + fx * ramp) * DAMPING;
-      v.vy = (v.vy + fy * ramp) * DAMPING;
-      const cap = MAX_V * (0.25 + 0.75 * ramp);
-      const sp = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
-      if (sp > cap) {
-        v.vx = (v.vx / sp) * cap;
-        v.vy = (v.vy / sp) * cap;
-      }
-      velocities.set(id, v);
+        // 引力：连边邻居
+        const nb = adj.get(id);
+        if (nb) {
+          nb.forEach((nid) => {
+            const op = pos[nid];
+            if (!op) return;
+            const dx = op.x - p.x;
+            const dy = op.y - p.y;
+            const d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const delta = (d - IDEAL) * K_ATTRACT;
+            fx += (dx / d) * delta;
+            fy += (dy / d) * delta;
+          });
+        }
 
-      if (Math.abs(v.vx) > 0.05 || Math.abs(v.vy) > 0.05) {
-        graph.updateItem(n, { x: p.x + v.vx, y: p.y + v.vy }, false);
+        const v = velocities.get(id) || { vx: 0, vy: 0 };
+        // 冷启动阶段把净力按 ramp 缩小：速度积累得慢，等阻尼把过冲压住后
+        // 再放开到完整力度。稳态时 ramp=1，行为不变。
+        v.vx = (v.vx + fx * ramp) * DAMPING;
+        v.vy = (v.vy + fy * ramp) * DAMPING;
+        const cap = MAX_V * (0.25 + 0.75 * ramp);
+        const sp = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
+        if (sp > cap) {
+          v.vx = (v.vx / sp) * cap;
+          v.vy = (v.vy / sp) * cap;
+        }
+        velocities.set(id, v);
+
+        if (Math.abs(v.vx) > 0.05 || Math.abs(v.vy) > 0.05) {
+          graph.updateItem(n, { x: p.x + v.vx, y: p.y + v.vy }, false);
+          painted = true;
+        }
+      });
+    } finally {
+      if (canBatchPaint) {
+        // 节点与边在同一帧内一起重绘（此前边比节点晚一帧）。
+        if (painted) graph.paint();
+        graph.setAutoPaint(true);
       }
-    });
+    }
 
     raf = requestAnimationFrame(step);
   };
@@ -295,6 +380,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       raf = null;
     }
     velocities.clear();
+    invalidateCaches();
   };
 
   return {
@@ -303,6 +389,7 @@ export function attachForceLoop(graph: ForceableGraph): ForceLoopController {
       enabled = en;
       if (en) {
         velocities.clear();
+        invalidateCaches();
         warmupRemaining = WARMUP_TOTAL;
         if (raf == null) raf = requestAnimationFrame(step);
       } else {

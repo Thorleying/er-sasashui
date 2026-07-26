@@ -47,7 +47,8 @@ export interface ParserWarning {
     | "column_type_invalid"
     | "foreign_key_unrecognized"
     | "constraint_skipped"
-    | "table_reference_missing";
+    | "table_reference_missing"
+    | "duplicate_table";
   message: string;
   line?: number;
 }
@@ -156,6 +157,8 @@ export interface SnapshotRecord {
   hideFields: boolean;
   nodes: NodeSnapshot[];
   thumbnail: string | null;
+  /** 缩略图生成规格版本；旧记录没有该字段。 */
+  thumbnailVersion?: number;
   createdAt: number;
   updatedAt: number;
 }

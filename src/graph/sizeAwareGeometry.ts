@@ -271,6 +271,36 @@ const modelAtBaseFontSize = (node: ERNodeModel): ERNodeModel => {
   };
 };
 
+// Memoization for computeLayoutSizeScale. The function is called on every
+// force-loop frame, every drag event and inside auto-avoid, each call costing
+// two text measurements per node. The result only depends on the node set and
+// the label geometry inputs (id, label, type, key flag, font size), so a
+// digest over those fields lets repeat calls return the cached ratio.
+const SIZE_SCALE_CACHE_LIMIT = 16;
+const sizeScaleCache = new Map<string, number>();
+
+const hashInto = (hash: number, text: string): number => {
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return (hash * 31 + 7) | 0;
+};
+
+const sizeScaleDigest = (nodes: ERNodeModel[]): string => {
+  let hash = 17;
+  hash = (hash * 31 + nodes.length) | 0;
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    hash = hashInto(hash, String(node.id ?? ""));
+    hash = hashInto(hash, node.label == null ? "" : String(node.label));
+    hash = hashInto(hash, String(node.nodeType ?? node.type ?? ""));
+    hash = hashInto(hash, String(node.keyType ?? ""));
+    const fontSize = node.labelCfg?.style?.fontSize;
+    hash = hashInto(hash, fontSize === undefined ? "" : String(fontSize));
+  }
+  return `${nodes.length}:${hash}`;
+};
+
 /**
  * Return the current diagram's linear geometry scale relative to the same
  * labels rendered at their type-specific base font sizes.
@@ -280,6 +310,26 @@ const modelAtBaseFontSize = (node: ERNodeModel): ERNodeModel => {
  * did not actually grow contributes exactly its baseline size (ratio 1).
  */
 export function computeLayoutSizeScale(
+  nodes: ERNodeModel[],
+  sizeOf: NodeSizeResolver = measureNodeSize,
+): number {
+  const digest = nodes.length ? sizeScaleDigest(nodes) : null;
+  if (digest !== null) {
+    const cached = sizeScaleCache.get(digest);
+    if (cached !== undefined) return cached;
+  }
+  const scale = computeLayoutSizeScaleUncached(nodes, sizeOf);
+  if (digest !== null) {
+    if (sizeScaleCache.size >= SIZE_SCALE_CACHE_LIMIT) {
+      const oldest = sizeScaleCache.keys().next().value;
+      if (oldest !== undefined) sizeScaleCache.delete(oldest);
+    }
+    sizeScaleCache.set(digest, scale);
+  }
+  return scale;
+}
+
+function computeLayoutSizeScaleUncached(
   nodes: ERNodeModel[],
   sizeOf: NodeSizeResolver = measureNodeSize,
 ): number {

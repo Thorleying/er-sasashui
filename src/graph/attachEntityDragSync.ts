@@ -61,6 +61,7 @@ export function attachEntityDragSync(
   const dragStartPositions = new Map<string, { x: number; y: number }>();
   const dragNodeSizes = new Map<string, NodeSize>();
   let dragEdgeModels: EREdgeModel[] | null = null;
+  let dragNodeModels: ERNodeModel[] | null = null;
   const RELATIONSHIP_SMOOTH_THRESHOLD = 2;
   const RELATIONSHIP_RETURN_DURATION = 280;
 
@@ -71,7 +72,10 @@ export function attachEntityDragSync(
       ? performance.now()
       : Date.now();
 
-  const graphNodeModels = () => graph.getNodes().map((n: any) => n.getModel());
+  // Node models are live references: caching the array at dragstart keeps the
+  // per-mousemove path O(1) on collection access while positions stay fresh.
+  const graphNodeModels = () =>
+    dragNodeModels ?? graph.getNodes().map((n: any) => n.getModel() as ERNodeModel);
   const graphEdgeModels = () => dragEdgeModels ?? graph.getEdges().map((e: any) => e.getModel());
   const projectedNodeModels = (targets: Map<string, Point>): ERNodeModel[] =>
     graphNodeModels().map((model) => {
@@ -105,6 +109,7 @@ export function attachEntityDragSync(
 
   const captureDragReadCache = () => {
     dragEdgeModels = graph.getEdges().map((e: any) => e.getModel());
+    dragNodeModels = graph.getNodes().map((n: any) => n.getModel() as ERNodeModel);
     dragNodeSizes.clear();
     graph.getNodes().forEach((node: any) => {
       const model = node.getModel();
@@ -216,11 +221,14 @@ export function attachEntityDragSync(
   const markRelationshipsNeedingSmoothReturn = (entityId: string): void => {
     relationshipReturnOffsets = new Map();
     const startTime = now();
+    // 与 node:drag / dragend 的调用保持一致地传 dragStartPositions：
+    // 否则单实体/自环关系在这里永远拿不到目标点而被跳过。
     const result = computeMovedEntityRelationshipTargets(
       graphNodeModels(),
       graphEdgeModels(),
       [entityId],
       measureNode,
+      dragStartPositions,
     );
     result.relationshipTargets.forEach((target, id) => {
       const item = graph.findById(id);
@@ -268,6 +276,7 @@ export function attachEntityDragSync(
     dragStartPositions.clear();
     dragNodeSizes.clear();
     dragEdgeModels = null;
+    dragNodeModels = null;
   };
 
   graph.on("node:dragstart", (e: any) => {

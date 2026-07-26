@@ -106,11 +106,7 @@ describe("parseDBML", () => {
         Note: 'order table'
       }
     `);
-    expect(result.tables[0].columns.map((c) => c.name)).toEqual([
-      "id",
-      "user_id",
-      "amount",
-    ]);
+    expect(result.tables[0].columns.map((c) => c.name)).toEqual(["id", "user_id", "amount"]);
   });
 
   it("parses multi-line Ref { ... } block with several relationships", () => {
@@ -131,11 +127,12 @@ describe("parseDBML", () => {
         fromCardinality: "N",
         toCardinality: "1",
       },
-      // 显式 `<` 反向：from 端为 1，to 端为 N
+      // 显式 `<` 反向：from 端为 1，to 端为 N；FK 落在右侧表上，
+      // 菱形标签取真实 FK 列（a.id），而非左侧列名
       {
         from: "b",
         to: "a",
-        label: "y",
+        label: "id",
         fromCardinality: "1",
         toCardinality: "N",
       },
@@ -253,11 +250,7 @@ Ref: 用户.属于 > 国家.编号
 Ref: 文章.作者 > 用户.编号
 `;
     const result = parseDBML(sample);
-    expect(result.tables.map((t) => t.name)).toEqual([
-      "用户",
-      "国家",
-      "文章",
-    ]);
+    expect(result.tables.map((t) => t.name)).toEqual(["用户", "国家", "文章"]);
     expect(result.tables[0].columns.map((c) => c.name)).toEqual([
       "编号",
       "用户名",
@@ -308,11 +301,7 @@ Ref: 文章.作者 >
 
     const result = parseDBML(sample);
 
-    expect(result.tables.map((t) => t.name)).toEqual([
-      "用户",
-      "国家",
-      "文章",
-    ]);
+    expect(result.tables.map((t) => t.name)).toEqual(["用户", "国家", "文章"]);
     expect(result.relationships).toEqual([
       {
         from: "用户",
@@ -541,9 +530,7 @@ Table {
         bio text
       }
     `);
-    const rel = result.relationships.find(
-      (r) => r.from === "user_profiles" && r.to === "users",
-    );
+    const rel = result.relationships.find((r) => r.from === "user_profiles" && r.to === "users");
     expect(rel).toBeDefined();
     expect(rel!.fromCardinality).toBe("1");
     expect(rel!.toCardinality).toBe("1");
@@ -560,9 +547,7 @@ Table {
       }
       Ref: payments.order_id > orders.id
     `);
-    const rel = result.relationships.find(
-      (r) => r.from === "payments" && r.to === "orders",
-    );
+    const rel = result.relationships.find((r) => r.from === "payments" && r.to === "orders");
     expect(rel).toBeDefined();
     expect(rel!.fromCardinality).toBe("1");
     expect(rel!.toCardinality).toBe("1");

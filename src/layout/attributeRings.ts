@@ -1,14 +1,7 @@
 import { measureNodeSize } from "../builder";
 import { computeLayoutSizeScale } from "../graph/sizeAwareGeometry";
+import { TAU, normalizeAngle as normAngle, segmentsCross as properCross } from "./geometry";
 import type { EREdgeModel, ERNodeModel } from "../types";
-
-const TAU = Math.PI * 2;
-
-const normAngle = (a: number): number => {
-  let x = a % TAU;
-  if (x < 0) x += TAU;
-  return x;
-};
 
 export interface AttributeRingState {
   nodes: ERNodeModel[];
@@ -95,16 +88,6 @@ export function placeAttributesModerate(state: AttributeRingState): void {
     }
   });
   type P = { x: number; y: number };
-  const properCross = (a1: P, a2: P, b1: P, b2: P) => {
-    const eq = (p: P, q: P) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6;
-    if (eq(a1, b1) || eq(a1, b2) || eq(a2, b1) || eq(a2, b2)) return false;
-    const c = (o: P, p: P, q: P) => (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
-    const d1 = c(b1, b2, a1);
-    const d2 = c(b1, b2, a2);
-    const d3 = c(a1, a2, b1);
-    const d4 = c(a1, a2, b2);
-    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-  };
   const connectorCrosses = (ex: number, ey: number, x: number, y: number, eid: string) =>
     relSegs.some(
       (seg) =>

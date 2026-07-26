@@ -24,6 +24,7 @@ import {
   patchRelationshipLinkPoints,
 } from "./builder";
 import { computeLayoutSizeScale } from "./graph/sizeAwareGeometry";
+import { segmentHitsBox, segmentsIntersectStrict } from "./layout/geometry";
 import type { ChenModelData, ERNodeModel, GraphLike, ParsedTable } from "./types";
 
 interface LayoutNodeRecord {
@@ -71,32 +72,37 @@ const rectsOverlap = (ax, ay, ahw, ahh, b, gap) => {
   return Math.abs(ax - b.x) < ahw + b.halfW + gap && Math.abs(ay - b.y) < ahh + b.halfH + gap;
 };
 
-// 严格线段相交（不含端点）。共享端点时 d3/d4 的 cross 为 0，
-// 严格不等号会让共享端点情况判为不相交。
-const cross2 = (ax, ay, bx, by) => ax * by - ay * bx;
-const segmentsIntersect = (x1, y1, x2, y2, x3, y3, x4, y4) => {
-  const d1 = cross2(x4 - x3, y4 - y3, x1 - x3, y1 - y3);
-  const d2 = cross2(x4 - x3, y4 - y3, x2 - x3, y2 - y3);
-  const d3 = cross2(x2 - x1, y2 - y1, x3 - x1, y3 - y1);
-  const d4 = cross2(x2 - x1, y2 - y1, x4 - x1, y4 - y1);
-  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
-};
+// 严格线段相交（不含端点）与"线段是否穿过 AABB"复用共享几何模块；
+// 这里保留标量参数形式的薄封装，避免调用点大改。
+const segmentsIntersect = (
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  x3: number,
+  y3: number,
+  x4: number,
+  y4: number,
+): boolean =>
+  segmentsIntersectStrict({ x: x1, y: y1 }, { x: x2, y: y2 }, { x: x3, y: y3 }, { x: x4, y: y4 });
 
-// 线段是否穿过一个 AABB（端点在矩形内或任一条边相交都算）
-const segmentHitsRect = (sx1, sy1, sx2, sy2, cx, cy, hw, hh) => {
-  const x1 = cx - hw,
-    x2 = cx + hw;
-  const y1 = cy - hh,
-    y2 = cy + hh;
-  if (sx1 > x1 && sx1 < x2 && sy1 > y1 && sy1 < y2) return true;
-  if (sx2 > x1 && sx2 < x2 && sy2 > y1 && sy2 < y2) return true;
-  return (
-    segmentsIntersect(sx1, sy1, sx2, sy2, x1, y1, x2, y1) ||
-    segmentsIntersect(sx1, sy1, sx2, sy2, x2, y1, x2, y2) ||
-    segmentsIntersect(sx1, sy1, sx2, sy2, x2, y2, x1, y2) ||
-    segmentsIntersect(sx1, sy1, sx2, sy2, x1, y2, x1, y1)
+const segmentHitsRect = (
+  sx1: number,
+  sy1: number,
+  sx2: number,
+  sy2: number,
+  cx: number,
+  cy: number,
+  hw: number,
+  hh: number,
+): boolean =>
+  segmentHitsBox(
+    { x: sx1, y: sy1 },
+    { x: sx2, y: sy2 },
+    { x: cx, y: cy },
+    { width: hw * 2, height: hh * 2 },
+    0,
   );
-};
 
 // 以关系连线方向作为固定锚点，把 N 个属性槽位插入各弧段，
 // 让 N 个属性 + K 条关系线 的方向在实体四周尽可能均匀分布。
