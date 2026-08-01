@@ -18,6 +18,22 @@ export const nodeFontSize = (model: ERNodeModel, scale: number): number => {
 };
 
 /**
+ * 页面主题脚本通常会写入 data-theme；媒体查询分支只在该脚本无法访问
+ * localStorage 等极少数场景下作为兜底。
+ */
+const isDarkCanvasTheme = (): boolean => {
+  if (typeof document === "undefined") return false;
+  const explicitTheme = document.documentElement.getAttribute("data-theme");
+  if (explicitTheme === "dark") return true;
+  if (explicitTheme === "light") return false;
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+};
+
+/**
  * Write font sizes to plain graph models before a renderer or layout sees them.
  * This keeps the initial Web force layout and the headless CLI on the same
  * measured geometry as the eventual custom-node render.
@@ -60,6 +76,10 @@ export const updateGraphStyles = (
   if (!graphInstance || graphInstance.destroyed) return;
 
   const safeFontScale = clampFontScale(fontScale);
+  const darkCanvas = isDarkCanvasTheme();
+  // 彩色节点不随主题变化；深色画布上的连接线与黑白节点改用反白样式。
+  // 导出器会把导出副本的连接线恢复为亮色模式样式，不会污染源图。
+  const edgeStroke = darkCanvas ? "#ffffff" : "#000000";
 
   graphInstance.setAutoPaint(false);
 
@@ -146,17 +166,17 @@ export const updateGraphStyles = (
       }
     } else {
       styles.style = {
-        fill: "#ffffff",
-        stroke: "#1e293b",
+        fill: darkCanvas ? "#171716" : "#ffffff",
+        stroke: darkCanvas ? "#ffffff" : "#1e293b",
         lineWidth: 2,
         shadowBlur: 0,
       };
       if (model.isPlaceholder) {
         styles.style.lineDash = [4, 4];
-        styles.style.stroke = "#64748b";
+        styles.style.stroke = darkCanvas ? "#ffffff" : "#64748b";
         styles.labelCfg = {
           style: {
-            fill: "#64748b",
+            fill: darkCanvas ? "#ffffff" : "#64748b",
             fontWeight: "bold",
             fontStyle: "italic",
             fontFamily: "Poppins",
@@ -165,7 +185,7 @@ export const updateGraphStyles = (
       } else {
         styles.labelCfg = {
           style: {
-            fill: "#1e293b",
+            fill: darkCanvas ? "#ffffff" : "#1e293b",
             fontWeight: model.nodeType === "entity" || model.keyType === "pk" ? "bold" : "normal",
             fontFamily: "Poppins",
           },
@@ -186,16 +206,16 @@ export const updateGraphStyles = (
   graphInstance.getEdges().forEach((edge) => {
     graphInstance.updateItem(edge, {
       style: {
-        stroke: "#000000",
+        stroke: edgeStroke,
         lineWidth: 1.5,
         endArrow: false,
       },
       labelCfg: {
         style: {
-          fill: "#000000",
+          fill: darkCanvas ? "#ffffff" : "#000000",
           fontSize: 12 * safeFontScale,
           background: {
-            fill: "#ffffff",
+            fill: darkCanvas ? "#171716" : "#ffffff",
             padding: [2, 4, 2, 4],
             radius: 2,
           },

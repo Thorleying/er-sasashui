@@ -2037,14 +2037,20 @@ body.is-lang-fading .lang-fade-target {
 }
 
 :root[data-theme="dark"] .cm-host {
-  background: var(--color-bg-overlay);
+  /* 比暗色卡片再亮一档，让代码输入区的边界更清楚。 */
+  background: #373630;
   color: var(--app-ink);
 }
 
-/* 暗色下画布不用纯白（刺眼），改柔和纸白，与整体米色系协调 */
-:root[data-theme="dark"] .diagram-container,
+/* 深灰画布配合浅色网格点；连线颜色由 updateGraphStyles 单独适配。 */
+:root[data-theme="dark"] .diagram-container {
+  background-color: #171716;
+  background-image: radial-gradient(rgba(234, 231, 220, 0.16) 1.5px, transparent 1.5px);
+}
+
 :root[data-theme="dark"] .diagram-container.no-grid {
-  background-color: #f2f0e9;
+  background-color: #171716;
+  background-image: none;
 }
 
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb {
@@ -2059,13 +2065,18 @@ body.is-lang-fading .lang-fade-target {
   }
 
   :root:not([data-theme="light"]) .cm-host {
-    background: var(--color-bg-overlay);
+    background: #373630;
     color: var(--app-ink);
   }
 
-  :root:not([data-theme="light"]) .diagram-container,
+  :root:not([data-theme="light"]) .diagram-container {
+    background-color: #171716;
+    background-image: radial-gradient(rgba(234, 231, 220, 0.16) 1.5px, transparent 1.5px);
+  }
+
   :root:not([data-theme="light"]) .diagram-container.no-grid {
-    background-color: #f2f0e9;
+    background-color: #171716;
+    background-image: none;
   }
 
   :root:not([data-theme="light"]) ::-webkit-scrollbar-thumb {

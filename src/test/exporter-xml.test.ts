@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDrawioXML, escapeXml } from "../exporter";
+import { buildDrawioXML, escapeXml, normalizeGraphDataForLightExport } from "../exporter";
 import type { EREdgeModel, ERNodeModel, GraphEdgeLike, GraphLike, GraphNodeLike } from "../types";
 
 describe("escapeXml", () => {
@@ -18,6 +18,53 @@ describe("escapeXml", () => {
   it("stringifies non-string inputs", () => {
     expect(escapeXml(42)).toBe("42");
     expect(escapeXml(true)).toBe("true");
+  });
+});
+
+describe("normalizeGraphDataForLightExport", () => {
+  it("restores dark-canvas edge styles on a cloned export model", () => {
+    const source = {
+      nodes: [
+        {
+          id: "a",
+          nodeType: "entity",
+          style: { fill: "#171716", stroke: "#ffffff", lineWidth: 2 },
+          labelCfg: { style: { fill: "#ffffff", fontWeight: "bold" } },
+        },
+        {
+          id: "b",
+          nodeType: "attribute",
+          style: { fill: "#171716", stroke: "#ffffff", lineWidth: 2 },
+          labelCfg: { style: { fill: "#ffffff" } },
+        },
+      ],
+      edges: [
+        {
+          source: "a",
+          target: "b",
+          style: { stroke: "#ffffff", lineWidth: 1.5 },
+          labelCfg: {
+            style: {
+              fill: "#ffffff",
+              background: { fill: "#171716", padding: [2, 4, 2, 4] },
+            },
+          },
+        },
+      ],
+    };
+
+    const normalized = normalizeGraphDataForLightExport(source) as typeof source;
+
+    expect(normalized.nodes[0].style.fill).toBe("#ffffff");
+    expect(normalized.nodes[0].style.stroke).toBe("#1e293b");
+    expect(normalized.nodes[0].labelCfg.style.fill).toBe("#1e293b");
+    expect(normalized.edges[0].style.stroke).toBe("#000000");
+    expect(normalized.edges[0].labelCfg.style.fill).toBe("#000000");
+    expect(normalized.edges[0].labelCfg.style.background.fill).toBe("#ffffff");
+    expect(normalized.edges[0].labelCfg.style.background.padding).toEqual([2, 4, 2, 4]);
+    expect(source.nodes[0].style.fill).toBe("#171716");
+    expect(source.nodes[0].style.stroke).toBe("#ffffff");
+    expect(source.edges[0].style.stroke).toBe("#ffffff");
   });
 });
 
@@ -164,6 +211,41 @@ describe("buildDrawioXML", () => {
     ];
     const xml = buildDrawioXML(buildGraph(nodes, edges));
     expect((xml.match(/edge="1"/g) || []).length).toBe(0);
+  });
+
+  it("exports dark-canvas edges as black drawio connectors", () => {
+    const xml = buildDrawioXML(
+      buildGraph(
+        [
+          buildNode(
+            {
+              id: "a",
+              label: "A",
+              nodeType: "entity",
+              style: { fill: "#171716", stroke: "#ffffff", lineWidth: 2 },
+              labelCfg: { style: { fill: "#ffffff" } },
+            },
+            { minX: 0, minY: 0, width: 40, height: 30 },
+          ),
+          buildNode(
+            { id: "b", label: "B", nodeType: "entity" },
+            { minX: 100, minY: 0, width: 40, height: 30 },
+          ),
+        ],
+        [
+          buildEdge({
+            source: "a",
+            target: "b",
+            style: { stroke: "#ffffff", lineWidth: 1.5 },
+          }),
+        ],
+      ),
+    );
+
+    expect(xml).toContain("strokeColor=#000000");
+    expect(xml).not.toContain("strokeColor=#ffffff");
+    expect(xml).toContain("fillColor=#ffffff;strokeColor=#1e293b");
+    expect(xml).not.toContain("fillColor=#171716");
   });
 
   it("marks dashed-style nodes with dashed=1", () => {

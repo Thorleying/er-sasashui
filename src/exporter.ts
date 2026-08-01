@@ -65,6 +65,92 @@ export type BuildExportSVGCallback = (err: unknown, result?: BuildExportSVGResul
 
 export type BuildExportSVGOptions = BaseExportOptions;
 
+interface SavedGraphData {
+  nodes?: Array<{
+    style?: Record<string, unknown>;
+    labelCfg?: { style?: Record<string, unknown> };
+    isPlaceholder?: boolean;
+    [key: string]: unknown;
+  }>;
+  edges?: Array<{
+    style?: Record<string, unknown>;
+    labelCfg?: {
+      style?: Record<string, unknown> & {
+        background?: Record<string, unknown>;
+      };
+    };
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown;
+}
+
+/**
+ * 屏幕上的暗色画布使用反白节点与白色连接线；SVG / PNG 始终导出为
+ * 和亮色模式相同的黑白节点、黑色连接线、黑字白底标签。
+ * 只克隆需要转换的数据，绝不回写当前图。
+ */
+export function normalizeGraphDataForLightExport(data: unknown): unknown {
+  if (!data || typeof data !== "object") return data;
+  const graphData = data as SavedGraphData;
+  const hasNodes = Array.isArray(graphData.nodes);
+  const hasEdges = Array.isArray(graphData.edges);
+  if (!hasNodes && !hasEdges) return data;
+
+  return {
+    ...graphData,
+    ...(hasNodes
+      ? {
+          nodes: graphData.nodes!.map((node) => {
+            const darkMonochrome =
+              node.style?.fill === "#171716" && node.style?.stroke === "#ffffff";
+            if (!darkMonochrome) return node;
+            const lightInk = node.isPlaceholder ? "#64748b" : "#1e293b";
+            return {
+              ...node,
+              style: {
+                ...(node.style ?? {}),
+                fill: "#ffffff",
+                stroke: lightInk,
+              },
+              labelCfg: {
+                ...(node.labelCfg ?? {}),
+                style: {
+                  ...(node.labelCfg?.style ?? {}),
+                  fill: lightInk,
+                },
+              },
+            };
+          }),
+        }
+      : {}),
+    ...(hasEdges
+      ? {
+          edges: graphData.edges!.map((edge) => {
+            const labelStyle = edge.labelCfg?.style;
+            return {
+              ...edge,
+              style: {
+                ...(edge.style ?? {}),
+                stroke: "#000000",
+              },
+              labelCfg: {
+                ...(edge.labelCfg ?? {}),
+                style: {
+                  ...(labelStyle ?? {}),
+                  fill: "#000000",
+                  background: {
+                    ...(labelStyle?.background ?? {}),
+                    fill: "#ffffff",
+                  },
+                },
+              },
+            };
+          }),
+        }
+      : {}),
+  };
+}
+
 interface UserFacingExportOptions extends BaseExportOptions {
   hasGraph: boolean;
   onError?: (code: ExportErrorCode) => void;
@@ -142,7 +228,7 @@ export function buildExportSVG(options: BuildExportSVGOptions, cb: BuildExportSV
       cb(new Error("graph or container not ready"));
       return;
     }
-    const data = sourceGraph.save();
+    const data = normalizeGraphDataForLightExport(sourceGraph.save());
 
     tempContainer = document.createElement("div");
     tempContainer.style.position = "absolute";
@@ -464,17 +550,21 @@ interface DrawioStyleSource {
   };
   nodeType?: string;
   keyType?: string;
+  isPlaceholder?: boolean;
 }
 
 // 把样式对象拼成 drawio 的 style 串。drawio 不认 G6 的驼峰键，需要映射。
 function buildVertexStyle(model: DrawioStyleSource): string {
   const s = model.style || {};
-  const fill = s.fill || "#ffffff";
-  const stroke = s.stroke || "#000000";
+  const darkMonochrome = s.fill === "#171716" && s.stroke === "#ffffff";
+  const lightInk = model.isPlaceholder ? "#64748b" : "#1e293b";
+  const fill = darkMonochrome ? "#ffffff" : s.fill || "#ffffff";
+  const stroke = darkMonochrome ? lightInk : s.stroke || "#000000";
   const strokeWidth = s.lineWidth || 1;
   const dashed = Array.isArray(s.lineDash) && s.lineDash.length ? "dashed=1;" : "";
-  const labelFontColor =
-    (model.labelCfg && model.labelCfg.style && model.labelCfg.style.fill) || "#1e293b";
+  const labelFontColor = darkMonochrome
+    ? lightInk
+    : (model.labelCfg && model.labelCfg.style && model.labelCfg.style.fill) || "#1e293b";
 
   // fontStyle 是 bitmask：1=bold, 2=italic, 4=underline
   const lblStyle = (model.labelCfg && model.labelCfg.style) || {};
@@ -508,12 +598,13 @@ function buildVertexStyle(model: DrawioStyleSource): string {
 
 function buildEdgeStyle(model: DrawioStyleSource): string {
   const s = model.style || {};
-  const stroke = s.stroke || "#000000";
   const strokeWidth = s.lineWidth || 1;
+  // drawio 与 SVG / PNG 一样固定使用亮色模式的黑色连接线。
+  const stroke = "#000000";
   // endArrow=none：Chen 模型里 entity-attribute、entity-relationship 都是无向线
   const parsedFontSize = Number(model.labelCfg?.style?.fontSize);
   const fontSize = Number.isFinite(parsedFontSize) && parsedFontSize > 0 ? parsedFontSize : 12;
-  return `endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=${fontSize};`;
+  return `endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=${stroke};strokeWidth=${strokeWidth};fontSize=${fontSize};fontColor=#000000;`;
 }
 
 // 生成一个 drawio diagram id（短、仅字母数字下划线，drawio 对 id 没有严格校验但保守一些）
