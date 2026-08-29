@@ -756,3 +756,12 @@
 - 修复：`npm ci --omit=dev` 会缺 `tsx` 导致 API 起不来，改为完整 `npm ci`（已更新 remote-install/README）。
 - 验证：线上 `index-CHKj7d8K.js` 含「分享链接」；`/api/auth/me` 401 正常；无效 share token 404。
 - 未动：`hm-backend`（7001）仍 online。
+
+### 13:19 · 数据库导出与新 GitHub 仓库
+
+- 任务：SQL 导出到项目目录；commit + push；创建 GitHub 仓库。
+- 类型：改动 / 发布
+- 说明：本机 3306 未运行，从生产 mysqldump 拉取至 `database/dumps/er_sasashui-20260829.sql.gz`；另增 `database/schema.sql`。
+- 仓库：https://github.com/Thorleying/er-sasashui（public）；原 `ystemsrx/sql_to_ER` 远程改名为 `upstream`。
+- 提交：`76ceebc` feat(platform): ER洒洒水全栈平台与数据库导出
+- 未提交：`server/.env`（仍在 .gitignore）
