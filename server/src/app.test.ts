@@ -300,7 +300,11 @@ describe("API 鉴权与操作写入", () => {
     });
     expect(result.status).toBe(200);
     expect(result.body.code).toBe(0);
-    const days = (result.body.data as { days: Array<Record<string, number>> }).days;
+    const days = (
+      result.body.data as {
+        days: Array<{ date: string; pvCount: number; uvCount: number; generateCount: number }>;
+      }
+    ).days;
     const today = days.find((item) => item.date === date);
     expect(today?.pvCount).toBeGreaterThanOrEqual(3);
     expect(today?.uvCount).toBeGreaterThanOrEqual(2);
