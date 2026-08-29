@@ -176,8 +176,7 @@ export function createPageViewColumns(): ColumnsType<AdminPageView> {
       key: "user",
       width: 120,
       ellipsis: { showTitle: true },
-      render: (_, row) =>
-        row.displayName || row.email ? row.displayName || row.email : "未登录",
+      render: (_, row) => (row.displayName || row.email ? row.displayName || row.email : "未登录"),
     },
     {
       title: "User-Agent",

@@ -58,35 +58,42 @@ export function AdminUserMobileList({
             const nextDisabled = !user.disabled;
             return (
               <li key={user.id} className="admin-mobile-card">
-              <div className="admin-mobile-card__head">
-                <strong>{user.displayName}</strong>
-                <span className="admin-mobile-card__tags">
-                  <Tag color={user.role === "admin" ? "blue" : "default"}>
-                    {user.role === "admin" ? "管理员" : "用户"}
-                  </Tag>
-                  {user.disabled ? <Tag color="error">已禁用</Tag> : <Tag color="success">正常</Tag>}
-                </span>
-              </div>
-              <MobileRow label="邮箱" value={user.email} />
-              <MobileRow label="ID" value={user.id} />
-              <MobileRow label="注册" value={formatTime(user.createdAt)} />
-              <MobileRow label="最近登录" value={user.lastLoginAt ? formatTime(user.lastLoginAt) : "—"} />
-              <MobileRow label="注册 IP" value={user.registerIp ?? "—"} />
-              <MobileRow label="登录 IP" value={user.lastLoginIp ?? "—"} />
-              {user.role !== "admin" ? (
-                <div className="admin-mobile-card__actions">
-                  <Popconfirm
-                    title={nextDisabled ? "确定禁用该用户？" : "确定启用该用户？"}
-                    okText={nextDisabled ? "禁用" : "启用"}
-                    cancelText="取消"
-                    onConfirm={() => onToggleDisabled(user, nextDisabled)}
-                  >
-                    <Button size="small" danger={nextDisabled}>
-                      {user.disabled ? "启用" : "禁用"}
-                    </Button>
-                  </Popconfirm>
+                <div className="admin-mobile-card__head">
+                  <strong>{user.displayName}</strong>
+                  <span className="admin-mobile-card__tags">
+                    <Tag color={user.role === "admin" ? "blue" : "default"}>
+                      {user.role === "admin" ? "管理员" : "用户"}
+                    </Tag>
+                    {user.disabled ? (
+                      <Tag color="error">已禁用</Tag>
+                    ) : (
+                      <Tag color="success">正常</Tag>
+                    )}
+                  </span>
                 </div>
-              ) : null}
+                <MobileRow label="邮箱" value={user.email} />
+                <MobileRow label="ID" value={user.id} />
+                <MobileRow label="注册" value={formatTime(user.createdAt)} />
+                <MobileRow
+                  label="最近登录"
+                  value={user.lastLoginAt ? formatTime(user.lastLoginAt) : "—"}
+                />
+                <MobileRow label="注册 IP" value={user.registerIp ?? "—"} />
+                <MobileRow label="登录 IP" value={user.lastLoginIp ?? "—"} />
+                {user.role !== "admin" ? (
+                  <div className="admin-mobile-card__actions">
+                    <Popconfirm
+                      title={nextDisabled ? "确定禁用该用户？" : "确定启用该用户？"}
+                      okText={nextDisabled ? "禁用" : "启用"}
+                      cancelText="取消"
+                      onConfirm={() => onToggleDisabled(user, nextDisabled)}
+                    >
+                      <Button size="small" danger={nextDisabled}>
+                        {user.disabled ? "启用" : "禁用"}
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                ) : null}
               </li>
             );
           })}
@@ -114,7 +121,13 @@ type VisitListProps = {
 };
 
 /** 访问记录移动端列表。 */
-export function AdminVisitMobileList({ items, page, pageSize, total, onPageChange }: VisitListProps) {
+export function AdminVisitMobileList({
+  items,
+  page,
+  pageSize,
+  total,
+  onPageChange,
+}: VisitListProps) {
   return (
     <div className="admin-mobile-panel">
       {items.length === 0 ? (

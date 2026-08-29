@@ -13,9 +13,9 @@ function getFullscreenElement(): Element | null {
 async function requestElementFullscreen(el: HTMLElement): Promise<boolean> {
   const request =
     el.requestFullscreen?.bind(el) ??
-    (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen?.bind(
-      el,
-    );
+    (
+      el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }
+    ).webkitRequestFullscreen?.bind(el);
 
   if (!request) return false;
 

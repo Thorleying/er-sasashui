@@ -53,17 +53,25 @@ jobs:
       - name: Strip sourcemaps from Pages artifact
         run: find dist -name "*.map" -type f -delete
 
+      # 仓库未开 Pages 时 configure-pages 会 404；先探测，未开通则跳过上传，避免整次 push 红叉。
       - name: Configure Pages
+        id: pages
+        continue-on-error: true
         uses: actions/configure-pages@v6
 
       - name: Upload Pages artifact
+        if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
+    outputs:
+      ready: ${{ steps.pages.outcome == 'success' }}
+
   deploy:
     name: Deploy to GitHub Pages
     needs: build
+    if: needs.build.outputs.ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

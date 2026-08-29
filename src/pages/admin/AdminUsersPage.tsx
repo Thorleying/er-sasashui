@@ -90,7 +90,9 @@ export function AdminUsersPage() {
 
   const columns = useMemo(
     () =>
-      createUserColumns({ onToggleDisabled: (user, disabled) => void handleToggleDisabled(user, disabled) }),
+      createUserColumns({
+        onToggleDisabled: (user, disabled) => void handleToggleDisabled(user, disabled),
+      }),
     [handleToggleDisabled],
   );
 
@@ -113,7 +115,11 @@ export function AdminUsersPage() {
           onFinish={(values) => void onFilter(values)}
         >
           <Form.Item name="q" label="搜索">
-            <Input allowClear placeholder="邮箱 / 显示名 / ID" className="admin-filter-input admin-filter-input--user" />
+            <Input
+              allowClear
+              placeholder="邮箱 / 显示名 / ID"
+              className="admin-filter-input admin-filter-input--user"
+            />
           </Form.Item>
           <Form.Item name="role" label="角色">
             <Select
@@ -131,7 +137,11 @@ export function AdminUsersPage() {
               options={USER_STATUS_OPTIONS}
             />
           </Form.Item>
-          <Form.Item className="admin-filter-actions" label={isMobile ? " " : undefined} colon={!isMobile}>
+          <Form.Item
+            className="admin-filter-actions"
+            label={isMobile ? " " : undefined}
+            colon={!isMobile}
+          >
             <Button type="primary" htmlType="submit">
               查询
             </Button>

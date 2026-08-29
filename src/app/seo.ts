@@ -129,4 +129,11 @@ export function getSeoForPath(pathname: string): SeoConfig {
 }
 
 /** 构建阶段写入 sitemap 的公开路径（不含需登录的工具页）。 */
-export const PUBLIC_SITEMAP_PATHS = ["/", "/terms", "/privacy", "/contact", "/login", "/register"] as const;
+export const PUBLIC_SITEMAP_PATHS = [
+  "/",
+  "/terms",
+  "/privacy",
+  "/contact",
+  "/login",
+  "/register",
+] as const;

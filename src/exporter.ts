@@ -226,8 +226,13 @@ export function downloadSVG(svgString: string, filename: string): void {
  * 回调 cb(err, { svgString, width, height })
  */
 export function buildExportSVG(options: BuildExportSVGOptions, cb: BuildExportSVGCallback): void {
-  const { graphRef, containerRef, patchRelationshipLinkPoints, G6, graphData: graphDataOverride } =
-    options;
+  const {
+    graphRef,
+    containerRef,
+    patchRelationshipLinkPoints,
+    G6,
+    graphData: graphDataOverride,
+  } = options;
   const backgroundFill = options.backgroundFill || "#ffffff";
   // 失败/成功共用的清理逻辑：任何路径都不能泄漏临时容器或临时图实例。
   let tempContainer: HTMLDivElement | null = null;

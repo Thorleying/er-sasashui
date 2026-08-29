@@ -36,7 +36,12 @@
   color: var(--auth-cream);
   background:
     radial-gradient(900px 420px at 12% 0%, rgba(217, 119, 87, 0.32), transparent 56%),
-    linear-gradient(165deg, var(--auth-night-1) 0%, var(--auth-night-2) 70%, var(--auth-night-3) 100%);
+    linear-gradient(
+      165deg,
+      var(--auth-night-1) 0%,
+      var(--auth-night-2) 70%,
+      var(--auth-night-3) 100%
+    );
 }
 
 .auth-aside::after {
@@ -288,7 +293,12 @@
     background:
       radial-gradient(1100px 640px at 12% 16%, rgba(217, 119, 87, 0.36), transparent 54%),
       radial-gradient(820px 480px at 90% 90%, rgba(201, 100, 66, 0.2), transparent 50%),
-      linear-gradient(165deg, var(--auth-night-1) 0%, var(--auth-night-2) 58%, var(--auth-night-3) 100%);
+      linear-gradient(
+        165deg,
+        var(--auth-night-1) 0%,
+        var(--auth-night-2) 58%,
+        var(--auth-night-3) 100%
+      );
   }
 
   .auth-aside::after {

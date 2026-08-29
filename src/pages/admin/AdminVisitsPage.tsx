@@ -32,7 +32,11 @@ export function AdminVisitsPage() {
   const [form] = Form.useForm<PageViewsFilterValues>();
 
   const load = useCallback(async (nextPage: number, nextFilter: PageViewsQuery) => {
-    const result = await fetchPageViews({ ...nextFilter, page: nextPage, pageSize: ADMIN_PAGE_SIZE });
+    const result = await fetchPageViews({
+      ...nextFilter,
+      page: nextPage,
+      pageSize: ADMIN_PAGE_SIZE,
+    });
     if (result.code !== 0) throw new Error(result.message);
     setItems(result.data.items);
     setTotal(result.data.total);
@@ -92,13 +96,25 @@ export function AdminVisitsPage() {
           onFinish={(values) => void onFilter(values)}
         >
           <Form.Item name="path" label="路径">
-            <Input allowClear placeholder="/app" className="admin-filter-input admin-filter-input--path" />
+            <Input
+              allowClear
+              placeholder="/app"
+              className="admin-filter-input admin-filter-input--path"
+            />
           </Form.Item>
           <Form.Item name="ip" label="IP">
-            <Input allowClear placeholder="203.0.113" className="admin-filter-input admin-filter-input--ip" />
+            <Input
+              allowClear
+              placeholder="203.0.113"
+              className="admin-filter-input admin-filter-input--ip"
+            />
           </Form.Item>
           <Form.Item name="q" label="用户">
-            <Input allowClear placeholder="邮箱 / 显示名" className="admin-filter-input admin-filter-input--user" />
+            <Input
+              allowClear
+              placeholder="邮箱 / 显示名"
+              className="admin-filter-input admin-filter-input--user"
+            />
           </Form.Item>
           <Form.Item name="from" label="从">
             <Input type="date" className="admin-filter-input admin-filter-input--date" />
@@ -106,7 +122,11 @@ export function AdminVisitsPage() {
           <Form.Item name="to" label="到">
             <Input type="date" className="admin-filter-input admin-filter-input--date" />
           </Form.Item>
-          <Form.Item className="admin-filter-actions" label={isMobile ? " " : undefined} colon={!isMobile}>
+          <Form.Item
+            className="admin-filter-actions"
+            label={isMobile ? " " : undefined}
+            colon={!isMobile}
+          >
             <Button type="primary" htmlType="submit">
               查询
             </Button>

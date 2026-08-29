@@ -12,7 +12,7 @@ import {
 
 describe("sanitizeTableExportBasename", () => {
   it("替换路径非法字符并保留中文", () => {
-    expect(sanitizeTableExportBasename('app/user:1')).toBe("app_user_1");
+    expect(sanitizeTableExportBasename("app/user:1")).toBe("app_user_1");
     expect(sanitizeTableExportBasename("用户")).toBe("用户");
   });
 });

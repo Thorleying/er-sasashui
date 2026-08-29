@@ -70,14 +70,7 @@ describe("buildDailyOverviewOption", () => {
     );
     expect(option.xAxis).toMatchObject({ data: ["08-28"] });
     const series = option.series as { name: string; type: string; data: number[] }[];
-    expect(series.map((item) => item.name)).toEqual([
-      "PV",
-      "UV",
-      "新用户",
-      "登录",
-      "生成",
-      "导出",
-    ]);
+    expect(series.map((item) => item.name)).toEqual(["PV", "UV", "新用户", "登录", "生成", "导出"]);
     expect(series.every((item) => item.type === "bar")).toBe(true);
     expect(series.map((item) => item.data)).toEqual([[10], [5], [1], [3], [2], [4]]);
   });
