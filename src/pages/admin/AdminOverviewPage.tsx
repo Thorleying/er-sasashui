@@ -48,9 +48,6 @@ export function AdminOverviewPage() {
   return (
     <div className="admin-page">
       <div className="admin-page-head">
-        <Typography.Title level={3} className="admin-page-title">
-          数据概览
-        </Typography.Title>
         <Typography.Text type="secondary">近 7 日</Typography.Text>
       </div>
       <Row gutter={[16, 16]}>
@@ -85,12 +82,14 @@ export function AdminOverviewPage() {
           </Card>
         </Col>
       </Row>
-      <Card title="访问趋势">
-        <AdminTrafficChart days={days} />
-      </Card>
-      <Card title="使用趋势">
-        <AdminTrendChart days={days} />
-      </Card>
+      <div className="admin-overview-charts">
+        <Card title="访问趋势">
+          <AdminTrafficChart days={days} />
+        </Card>
+        <Card title="使用趋势">
+          <AdminTrendChart days={days} />
+        </Card>
+      </div>
       <Card title="每日情况">
         <AdminDailyOverviewChart days={days} />
       </Card>

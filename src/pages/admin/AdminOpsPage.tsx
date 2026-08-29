@@ -1,12 +1,13 @@
 /**
  * 管理端操作记录。支持用户、关键词、动作、日期筛选。
  */
-import { Button, Card, Form, Input, InputNumber, Select, Table, Typography } from "antd";
+import { Button, Card, DatePicker, Form, Input, InputNumber, Select, Table } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { showError } from "../../app/feedback";
 import { ADMIN_PAGE_SIZE, fetchOps, type AdminOp, type OpsQuery } from "../../features/admin/api";
 import { AdminOpMobileList } from "../../features/admin/adminMobileList";
 import { createOpColumns, OP_ACTION_OPTIONS } from "../../features/admin/columns";
+import { formatFilterDate, type FilterDate } from "../../features/admin/dateFilter";
 import { useAdminMobile } from "../../features/admin/useAdminMobile";
 
 type OpsFilterValues = {
@@ -14,8 +15,8 @@ type OpsFilterValues = {
   q?: string;
   action?: string;
   ip?: string;
-  from?: string;
-  to?: string;
+  from?: FilterDate;
+  to?: FilterDate;
 };
 
 /** 操作记录页。 */
@@ -51,8 +52,8 @@ export function AdminOpsPage() {
       q: values.q?.trim() || undefined,
       action: values.action,
       ip: values.ip?.trim() || undefined,
-      from: values.from || undefined,
-      to: values.to || undefined,
+      from: formatFilterDate(values.from),
+      to: formatFilterDate(values.to),
     };
     setFilter(next);
     try {
@@ -78,9 +79,6 @@ export function AdminOpsPage() {
 
   return (
     <div className="admin-page">
-      <Typography.Title level={3} className="admin-page-title">
-        操作记录
-      </Typography.Title>
       <Card className="admin-table-panel">
         <Form
           form={form}
@@ -120,10 +118,20 @@ export function AdminOpsPage() {
             />
           </Form.Item>
           <Form.Item name="from" label="从">
-            <Input type="date" className="admin-filter-input admin-filter-input--date" />
+            <DatePicker
+              allowClear
+              format="YYYY-MM-DD"
+              placeholder="开始日期"
+              className="admin-filter-input admin-filter-input--date"
+            />
           </Form.Item>
           <Form.Item name="to" label="到">
-            <Input type="date" className="admin-filter-input admin-filter-input--date" />
+            <DatePicker
+              allowClear
+              format="YYYY-MM-DD"
+              placeholder="结束日期"
+              className="admin-filter-input admin-filter-input--date"
+            />
           </Form.Item>
           <Form.Item
             className="admin-filter-actions"

@@ -92,7 +92,7 @@ export function AdminLayout() {
         跳到正文
       </a>
       {isMobile ? null : (
-        <Layout.Sider width={220} theme="dark" className="admin-sider" trigger={null}>
+        <Layout.Sider width={232} theme="dark" className="admin-sider" trigger={null}>
           <ConsoleBrand />
           {menu}
         </Layout.Sider>

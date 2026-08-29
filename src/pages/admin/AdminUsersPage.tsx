@@ -1,7 +1,7 @@
 /**
  * 管理端用户列表。支持关键词 / 角色 / 状态筛选与禁用操作。
  */
-import { Button, Card, Form, Input, Select, Table, Typography } from "antd";
+import { Button, Card, Form, Input, Select, Table } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { showError, showSuccess } from "../../app/feedback";
 import {
@@ -104,9 +104,6 @@ export function AdminUsersPage() {
 
   return (
     <div className="admin-page">
-      <Typography.Title level={3} className="admin-page-title">
-        用户管理
-      </Typography.Title>
       <Card className="admin-table-panel">
         <Form
           form={form}

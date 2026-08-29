@@ -1,7 +1,7 @@
 /**
  * 管理端访问记录（PV 明细）：路径、IP、访客、User-Agent。
  */
-import { Button, Card, Form, Input, Table, Typography } from "antd";
+import { Button, Card, DatePicker, Form, Input, Table } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import { showError } from "../../app/feedback";
 import {
@@ -12,14 +12,15 @@ import {
 } from "../../features/admin/api";
 import { AdminVisitMobileList } from "../../features/admin/adminMobileList";
 import { createPageViewColumns } from "../../features/admin/columns";
+import { formatFilterDate, type FilterDate } from "../../features/admin/dateFilter";
 import { useAdminMobile } from "../../features/admin/useAdminMobile";
 
 type PageViewsFilterValues = {
   q?: string;
   path?: string;
   ip?: string;
-  from?: string;
-  to?: string;
+  from?: FilterDate;
+  to?: FilterDate;
 };
 
 /** 页面访问记录。 */
@@ -58,8 +59,8 @@ export function AdminVisitsPage() {
       q: values.q?.trim() || undefined,
       path: values.path?.trim() || undefined,
       ip: values.ip?.trim() || undefined,
-      from: values.from || undefined,
-      to: values.to || undefined,
+      from: formatFilterDate(values.from),
+      to: formatFilterDate(values.to),
     };
     setFilter(next);
     try {
@@ -85,9 +86,6 @@ export function AdminVisitsPage() {
 
   return (
     <div className="admin-page">
-      <Typography.Title level={3} className="admin-page-title">
-        访问记录
-      </Typography.Title>
       <Card className="admin-table-panel">
         <Form
           form={form}
@@ -117,10 +115,20 @@ export function AdminVisitsPage() {
             />
           </Form.Item>
           <Form.Item name="from" label="从">
-            <Input type="date" className="admin-filter-input admin-filter-input--date" />
+            <DatePicker
+              allowClear
+              format="YYYY-MM-DD"
+              placeholder="开始日期"
+              className="admin-filter-input admin-filter-input--date"
+            />
           </Form.Item>
           <Form.Item name="to" label="到">
-            <Input type="date" className="admin-filter-input admin-filter-input--date" />
+            <DatePicker
+              allowClear
+              format="YYYY-MM-DD"
+              placeholder="结束日期"
+              className="admin-filter-input admin-filter-input--date"
+            />
           </Form.Item>
           <Form.Item
             className="admin-filter-actions"

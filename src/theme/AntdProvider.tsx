@@ -3,8 +3,12 @@
  */
 import { App as AntdApp, ConfigProvider, theme } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import dayjs from "dayjs";
+import "dayjs/locale/zh-cn";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { currentTheme } from "../app/chrome";
+
+dayjs.locale("zh-cn");
 
 const SYSTEM_SANS =
   '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif';
