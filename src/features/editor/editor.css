@@ -4,10 +4,14 @@
 
 .editor-workspace {
   display: grid;
-  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
   gap: 16px;
   height: 100%;
   padding: 16px;
+}
+
+.editor-workspace--readonly {
+  grid-template-columns: 1fr;
 }
 
 .editor-card {
@@ -54,6 +58,36 @@
   margin-left: auto;
 }
 
+.editor-preview-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  width: 100%;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.editor-preview-hint kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 5px;
+  margin: 0 1px;
+  border: 1px solid var(--color-border-subtle);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-bg-overlay) 70%, transparent);
+  font:
+    600 0.72rem/1 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  color: var(--color-text-primary);
+}
+
 .editor-preview-body {
   position: relative;
   display: flex;
@@ -71,8 +105,7 @@
   height: 100dvh;
   max-height: 100dvh;
   background: var(--color-bg-overlay, #fdfcf8);
-  padding:
-    env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
+  padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px)
     env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 
@@ -160,6 +193,23 @@ body.editor-preview-immersive {
     min-height: 180px;
     max-height: 40vh;
   }
+}
+
+.comment-editor-list {
+  display: grid;
+  gap: 20px;
+}
+
+.comment-editor-table .ant-typography {
+  margin-bottom: 10px;
+}
+
+.comment-editor-field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--color-text-secondary);
+  font-size: 0.82rem;
 }
 
 .share-readonly-banner {

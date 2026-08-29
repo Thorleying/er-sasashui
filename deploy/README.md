@@ -1,5 +1,24 @@
 # 生产部署说明 — bs.code-market.online
 
+## 本机 Docker
+
+本机只跑 MySQL + API。前端用 `pnpm dev`（5174，`/api` 代理到 3001）。
+
+```bash
+cp deploy/docker/.env.example deploy/docker/.env
+# 填 MYSQL_PASSWORD / JWT_SECRET / ADMIN_BOOTSTRAP_*
+docker compose --env-file deploy/docker/.env up -d --build
+pnpm dev
+```
+
+| 组件 | 地址 |
+|------|------|
+| 前端 | http://localhost:5174 |
+| API | http://localhost:3001 |
+| MySQL（宿主机） | 127.0.0.1:3310（本机 3306 已被占用） |
+
+停栈：`docker compose --env-file deploy/docker/.env down`
+
 ## 拓扑
 
 | 组件 | 路径 / 端口 |

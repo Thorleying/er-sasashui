@@ -7,23 +7,23 @@
 ```bash
 corepack enable
 pnpm install
-pnpm dev          # 前端 http://localhost:5173
-pnpm dev:api      # 后端 API（另开终端，默认 3001）
+pnpm dev          # 前端 http://localhost:5174（本机 5173 已被占用）
+pnpm dev:api      # 后端 API（另开终端，默认 3001；Docker 已起则可省略）
 ```
 
-| 页面 | 地址 |
-|------|------|
-| 欢迎页 | http://localhost:5173/ |
-| 生成器 | http://localhost:5173/app |
-| 管理端 | http://localhost:5173/admin |
-| 联系作者 | http://localhost:5173/contact |
+| 页面     | 地址                          |
+| -------- | ----------------------------- |
+| 欢迎页   | http://localhost:5174/        |
+| 生成器   | http://localhost:5174/app     |
+| 管理端   | http://localhost:5174/admin   |
+| 联系作者 | http://localhost:5174/contact |
 
 ## 环境变量
 
-| 文件 | 用途 |
-|------|------|
-| [.env.example](.env.example) | 前端 `VITE_*`（站点 URL、API 基址等） |
-| [server/.env.example](server/.env.example) | 本地 API（memory / mysql） |
+| 文件                                                             | 用途                                          |
+| ---------------------------------------------------------------- | --------------------------------------------- |
+| [.env.example](.env.example)                                     | 前端 `VITE_*`（站点 URL、API 基址等）         |
+| [server/.env.example](server/.env.example)                       | 本地 API（memory / mysql）                    |
 | [server/.env.production.example](server/.env.production.example) | 生产 API 模板（复制为 `server/.env`，勿提交） |
 
 本地 API 默认 `ER_STORE=memory`；联调 MySQL 时改 `server/.env` 并设置 `VITE_API_BASE=/api`。

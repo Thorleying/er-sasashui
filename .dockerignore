@@ -1,0 +1,16 @@
+.git
+.github
+.cursor
+node_modules
+server/node_modules
+dist
+server/dist
+.env
+.env.local
+server/.env
+deploy/docker/.env
+*.tsbuildinfo
+database/dumps
+agent-transcripts
+**/.DS_Store
+**/Thumbs.db

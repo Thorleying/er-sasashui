@@ -8,8 +8,14 @@ const base = process.env.BASE_PATH || "/";
 export default defineConfig({
   base,
   plugins: [react()],
+  test: {
+    exclude: ["server/**", "node_modules/**", "dist/**"],
+  },
   server: {
-    // 前端只认 /api，开发时转到独立 Node 服务，避免再写死端口。
+    // 本机 5173 已被其他项目占用。
+    port: 5174,
+    strictPort: true,
+    // 前端只认 /api，开发时转到 Docker 里的 API。
     proxy: {
       "/api": {
         target: "http://127.0.0.1:3001",

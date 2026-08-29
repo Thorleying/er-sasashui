@@ -299,12 +299,12 @@ body::before {
 }
 
 /* ─── Hero ───────────── */
-/* 粘性导航占掉首屏高度，hero 用剩余视口，避免右侧舞台被挤成一条缝 */
+/* 不撑满视口：上下只留紧凑边距，避免首屏被垂直居中拉开 */
 .hero {
-  min-height: calc(100svh - 72px);
+  min-height: 0;
   display: flex;
-  align-items: center;
-  padding-block: clamp(24px, 3vw, 40px) clamp(32px, 4vw, 56px);
+  align-items: flex-start;
+  padding-block: 36px 20px;
 }
 .hero-grid {
   width: 100%;

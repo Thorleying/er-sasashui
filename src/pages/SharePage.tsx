@@ -4,10 +4,12 @@
 import { Alert, Button, Result, Spin } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import App from "../App";
 import { UserLayout } from "../app/UserLayout";
 import { showError } from "../app/feedback";
+import { useAuth } from "../features/auth/AuthContext";
 import { getShareRequest } from "../features/share/api";
+import { ShareTableGallery } from "../features/share/ShareTableGallery";
+import "../features/share/share-gallery.css";
 import type { PublicShare } from "../features/share/types";
 import type { SnapshotRecord } from "../types";
 import { I18N } from "../i18n";
@@ -31,14 +33,10 @@ function toSnapshot(share: PublicShare): SnapshotRecord {
 
 export function SharePage() {
   const { token = "" } = useParams();
+  const { user } = useAuth();
   const [share, setShare] = useState<PublicShare | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-
-  useEffect(() => {
-    document.body.classList.add("is-app");
-    return () => document.body.classList.remove("is-app");
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +64,7 @@ export function SharePage() {
 
   if (loading) {
     return (
-      <UserLayout variant="editor">
+      <UserLayout>
         <div className="share-page-loading">
           <Spin size="large" tip={t.shareLoading} />
         </div>
@@ -76,7 +74,7 @@ export function SharePage() {
 
   if (notFound || !snapshot) {
     return (
-      <UserLayout variant="editor">
+      <UserLayout>
         <Result
           status="404"
           title={t.shareNotFoundTitle}
@@ -92,21 +90,21 @@ export function SharePage() {
   }
 
   return (
-    <UserLayout variant="editor">
+    <UserLayout>
       <Alert
         className="share-readonly-banner"
         type="info"
         showIcon
-        message={t.shareReadonlyBanner}
+        message={user ? t.shareReadonlyBannerAuthed : t.shareReadonlyBanner}
         action={
-          <Link to="/login" state={{ from: "/app" }}>
+          <Link to={user ? "/app" : "/login"} state={user ? undefined : { from: "/app" }}>
             <Button size="small" type="primary">
-              {t.shareLoginToEdit}
+              {user ? t.shareOpenGenerator : t.shareLoginToEdit}
             </Button>
           </Link>
         }
       />
-      <App readOnly initialSnapshot={snapshot} />
+      <ShareTableGallery snapshot={snapshot} />
     </UserLayout>
   );
 }

@@ -1,0 +1,213 @@
+/**
+ * 首页加厚区块与入场动效。颜色继续走暖纸 token，不另开一套。
+ */
+
+.hero-copy {
+  animation: landing-item-in 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.hero-dialects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+}
+
+.hero-dialects span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-subtle);
+  background: color-mix(in srgb, var(--color-bg-overlay) 70%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+
+.er-stage {
+  animation: landing-stage-in 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.er-chip {
+  animation: landing-chip-pulse 2.4s ease-in-out infinite;
+}
+
+.landing-sections {
+  gap: 72px;
+  padding-block: 32px 72px;
+}
+
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(var(--reveal-y, 14px));
+}
+
+.landing-reveal.is-in {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--reveal-delay, 0ms),
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1) var(--reveal-delay, 0ms);
+}
+
+.landing-stagger.is-in > * {
+  animation: landing-item-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.landing-stagger.is-in > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.landing-stagger.is-in > *:nth-child(2) {
+  animation-delay: 50ms;
+}
+.landing-stagger.is-in > *:nth-child(3) {
+  animation-delay: 100ms;
+}
+.landing-stagger.is-in > *:nth-child(4) {
+  animation-delay: 150ms;
+}
+.landing-stagger.is-in > *:nth-child(5) {
+  animation-delay: 200ms;
+}
+.landing-stagger.is-in > *:nth-child(6) {
+  animation-delay: 250ms;
+}
+.landing-stagger.is-in > *:nth-child(7) {
+  animation-delay: 300ms;
+}
+
+.landing-feature-card {
+  transition:
+    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-feature-card:hover {
+  transform: translateY(-4px);
+}
+
+.landing-compare,
+.landing-usecase,
+.landing-export-card,
+.landing-step {
+  height: 100%;
+  border-radius: 16px;
+  background: var(--color-bg-overlay);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.landing-compare,
+.landing-usecase,
+.landing-export-card,
+.landing-step {
+  padding: 22px 20px;
+}
+
+.landing-compare-kicker,
+.landing-step-index {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-bottom: 12px;
+  color: var(--color-accent-orange);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.landing-step-index {
+  width: 36px;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent-orange) 14%, transparent);
+}
+
+.landing-usecase h3,
+.landing-compare h3,
+.landing-step h3,
+.landing-export-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.landing-usecase p,
+.landing-compare p,
+.landing-step p,
+.landing-export-card p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+
+.landing-faq .ant-collapse {
+  background: transparent;
+  border: 0;
+}
+
+.landing-faq .ant-collapse-item {
+  margin-bottom: 10px;
+  border: 1px solid var(--color-border-subtle) !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  background: var(--color-bg-overlay);
+}
+
+.landing-faq .ant-collapse-header {
+  min-height: 48px !important;
+  align-items: center !important;
+  font-weight: 600;
+}
+
+@keyframes landing-stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes landing-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes landing-chip-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent-orange) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-accent-orange) 16%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-reveal,
+  .er-stage,
+  .er-chip,
+  .landing-feature-card,
+  .landing-stagger.is-in > * {
+    animation: none !important;
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+@media (max-width: 879px) {
+  .landing-sections {
+    gap: 48px;
+    padding-block: 36px 64px;
+  }
+}

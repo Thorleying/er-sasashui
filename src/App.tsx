@@ -66,6 +66,7 @@ const App = ({
     isColored,
     showComment,
     hideFields,
+    showRelations,
     fontScale,
     forceOn,
     autoAvoid,
@@ -79,10 +80,12 @@ const App = ({
     setIsColored,
     setShowComment,
     setHideFields,
+    setShowRelations,
     setFontScale,
     setForceOn,
     setAutoAvoid,
     handleGenerate,
+    applyComments,
     dismissParserWarnings,
     handleQuickLayout,
     handleArrangeLayout,
@@ -471,47 +474,52 @@ const App = ({
         t={t}
         readOnly={readOnly}
         inputText={inputText}
-      setInputText={setInputText}
-      showComment={showComment}
-      setShowComment={setShowComment}
-      loading={loading}
-      hasGraph={hasGraph}
-      tableCount={tableList.length}
-      exporting={exporting}
-      onGenerate={() => guardedOperate(() => handleGenerate())}
-      onExport={(fmt) => guardedOperate(() => handlePickExport(fmt))}
-      onShare={readOnly ? undefined : handleShare}
-      onSmartLayout={readOnly ? undefined : handleArrangeLayout}
-      onQuickLayout={readOnly ? undefined : handleQuickLayout}
-      showBackground={showBackground}
-      onToggleBackground={handleToggleBackground}
-      isColored={isColored}
-      setIsColored={setIsColored}
-      hideFields={hideFields}
-      setHideFields={setHideFields}
-      forceOn={forceOn}
-      setForceOn={setForceOn}
-      autoAvoid={autoAvoid}
-      setAutoAvoid={setAutoAvoid}
-      fontScale={fontScale}
-      setFontScale={setFontScale}
-      fontMin={FONT_SCALE_MIN}
-      fontMax={FONT_SCALE_MAX}
-      parserWarnings={parserWarnings}
-      onDismissWarnings={dismissParserWarnings}
-      containerRef={containerRef}
-      previewHeaderRef={previewHeaderRef}
-      previewTitleRef={previewTitleRef}
-      previewActionsRef={previewActionsRef}
-      legendMeasureRef={legendMeasureRef}
-      legendPlacement={legendPlacement}
-      historyOpen={historyOpen}
-      historyItems={historyItems}
-      onOpenHistory={readOnly ? undefined : () => void openHistory()}
-      onCloseHistory={onHistoryClose}
-      onRestoreHistory={onHistoryRestore}
-      onDeleteHistory={(id) => void onHistoryDelete(id)}
-      formatTimestamp={onHistoryFormatTimestamp}
+        setInputText={setInputText}
+        showComment={showComment}
+        setShowComment={setShowComment}
+        loading={loading}
+        hasGraph={hasGraph}
+        tableCount={tableList.length}
+        exporting={exporting}
+        onGenerate={() => guardedOperate(() => handleGenerate())}
+        onApplyComments={
+          readOnly ? undefined : (draft) => guardedOperate(() => applyComments(draft))
+        }
+        onExport={(fmt) => guardedOperate(() => handlePickExport(fmt))}
+        onShare={readOnly ? undefined : handleShare}
+        onSmartLayout={readOnly ? undefined : handleArrangeLayout}
+        onQuickLayout={readOnly ? undefined : handleQuickLayout}
+        showBackground={showBackground}
+        onToggleBackground={handleToggleBackground}
+        isColored={isColored}
+        setIsColored={setIsColored}
+        hideFields={hideFields}
+        setHideFields={setHideFields}
+        showRelations={showRelations}
+        setShowRelations={setShowRelations}
+        forceOn={forceOn}
+        setForceOn={setForceOn}
+        autoAvoid={autoAvoid}
+        setAutoAvoid={setAutoAvoid}
+        fontScale={fontScale}
+        setFontScale={setFontScale}
+        fontMin={FONT_SCALE_MIN}
+        fontMax={FONT_SCALE_MAX}
+        parserWarnings={parserWarnings}
+        onDismissWarnings={dismissParserWarnings}
+        containerRef={containerRef}
+        previewHeaderRef={previewHeaderRef}
+        previewTitleRef={previewTitleRef}
+        previewActionsRef={previewActionsRef}
+        legendMeasureRef={legendMeasureRef}
+        legendPlacement={legendPlacement}
+        historyOpen={historyOpen}
+        historyItems={historyItems}
+        onOpenHistory={readOnly ? undefined : () => void openHistory()}
+        onCloseHistory={onHistoryClose}
+        onRestoreHistory={onHistoryRestore}
+        onDeleteHistory={(id) => void onHistoryDelete(id)}
+        formatTimestamp={onHistoryFormatTimestamp}
       />
       {!readOnly ? (
         <ShareLinkModal

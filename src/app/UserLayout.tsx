@@ -21,7 +21,7 @@ export function UserLayout({ children, landing = false, variant }: UserLayoutPro
         跳到正文
       </a>
       <Layout.Header className="user-header">
-        <SiteHeader landing={landing} />
+        <SiteHeader />
       </Layout.Header>
       <Layout.Content id="main" className="user-content">
         {children}

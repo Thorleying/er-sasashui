@@ -1,0 +1,102 @@
+.share-readonly-banner {
+  margin: 0 0 16px;
+  border-radius: 8px;
+}
+
+.share-page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40vh;
+}
+
+.share-gallery {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+}
+
+.share-gallery-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 16px;
+}
+
+.share-gallery-head .ant-typography {
+  margin-bottom: 4px;
+}
+
+.share-gallery-lead {
+  margin-bottom: 0;
+}
+
+.share-gallery-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.share-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 16px;
+}
+
+.share-table-card {
+  height: 100%;
+  cursor: pointer;
+}
+
+.share-table-card:focus-visible {
+  outline: 2px solid var(--color-accent-orange);
+  outline-offset: 2px;
+}
+
+.share-table-card-extra {
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.share-table-card .ant-card-body {
+  padding: 0;
+}
+
+.share-table-canvas {
+  width: 100%;
+  height: min(42vh, 320px);
+  min-height: 240px;
+  background: #fff;
+  background-image: radial-gradient(rgba(20, 20, 19, 0.14) 1.5px, transparent 1.5px);
+  background-size: 24px 24px;
+}
+
+.share-table-canvas--preview {
+  height: min(72vh, 640px);
+  min-height: 360px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.share-preview-modal .ant-modal-body {
+  padding: 12px 16px 8px;
+}
+
+.share-preview-modal .ant-modal-footer {
+  margin-top: 0;
+  text-align: left;
+}
+
+@media (max-width: 879px) {
+  .share-table-canvas {
+    height: min(48vh, 280px);
+    min-height: 220px;
+  }
+
+  .share-table-canvas--preview {
+    height: min(64vh, 480px);
+    min-height: 280px;
+  }
+}

@@ -30,6 +30,12 @@ import {
   computeLayoutSizeScale,
 } from "../graph/sizeAwareGeometry";
 import { computeAutoAvoidTargets } from "../graph/autoAvoid";
+import { applyRelationVisibility } from "../graph/relationVisibility";
+import {
+  applyCommentEdits,
+  draftToEdits,
+  type CommentDraftTable,
+} from "../features/editor/applyCommentEdits";
 import { useSnapshotPersistence, type PersistMeta } from "./useSnapshotPersistence";
 import type {
   EREdgeModel,
@@ -75,6 +81,7 @@ export interface UseGraphResult {
   isColored: boolean;
   showComment: boolean;
   hideFields: boolean;
+  showRelations: boolean;
   fontScale: number;
   forceOn: boolean;
   autoAvoid: boolean;
@@ -91,6 +98,7 @@ export interface UseGraphResult {
   setIsColored: (next: boolean) => void;
   setShowComment: (next: boolean) => void;
   setHideFields: (next: boolean) => void;
+  setShowRelations: (next: boolean) => void;
   setFontScale: (next: number) => void;
   setForceOn: (next: boolean) => void;
   setAutoAvoid: (next: boolean) => void;
@@ -98,6 +106,7 @@ export interface UseGraphResult {
   dismissParserWarnings: () => void;
   // commands
   handleGenerate: (opts?: GenerateOptions) => void;
+  applyComments: (draft: CommentDraftTable[]) => void;
   handleQuickLayout: () => void;
   handleArrangeLayout: () => void;
   restoreFromSnapshot: (snap: SnapshotRecord) => void;
@@ -137,6 +146,7 @@ export function useGraph({
   const [isColored, setIsColoredState] = useState(false);
   const [showComment, setShowCommentState] = useState(false);
   const [hideFields, setHideFieldsState] = useState(false);
+  const [showRelations, setShowRelationsState] = useState(true);
   const [fontScale, setFontScaleState] = useState(1);
   const [forceOn, setForceOnState] = useState(false);
   const [autoAvoid, setAutoAvoidState] = useState(false);
@@ -179,6 +189,7 @@ export function useGraph({
     isColored,
     showComment,
     hideFields,
+    showRelations,
     fontScale,
     autoAvoid,
     t,
@@ -188,6 +199,7 @@ export function useGraph({
     isColored,
     showComment,
     hideFields,
+    showRelations,
     fontScale,
     autoAvoid,
     t,
@@ -527,6 +539,7 @@ export function useGraph({
       graph.render();
 
       applyGraphStyles(graph, useIsColored, useFontScale);
+      applyRelationVisibility(graph, stateRef.current.showRelations);
       if (useAutoAvoid && positionMap) applyGraphAutoAvoid(0);
 
       // 恢复快照路径（不跑力布局）才需要这里 fitView；力布局路径交给
@@ -693,7 +706,14 @@ export function useGraph({
         stateRef.current.fontScale,
       );
     }
+    applyRelationVisibility(graphRef.current, stateRef.current.showRelations);
     persistAfterOptionalAutoAvoid(700);
+  };
+
+  const setShowRelations = (next: boolean) => {
+    stateRef.current.showRelations = next;
+    setShowRelationsState(next);
+    applyRelationVisibility(graphRef.current, next);
   };
 
   // 滑块拖动是连续的 setFontScale 调用；把一次拖动折成一条撤销记录。
@@ -969,6 +989,28 @@ export function useGraph({
     });
   };
 
+  const applyComments = (draft: CommentDraftTable[]) => {
+    const next = applyCommentEdits(stateRef.current.inputText, draftToEdits(draft));
+    const positionMap = new Map<string, { x?: number; y?: number }>();
+    const graph = graphRef.current;
+    if (graph && !graph.destroyed) {
+      graph.getNodes().forEach((node) => {
+        const model = node.getModel();
+        if (typeof model.x === "number" && typeof model.y === "number") {
+          positionMap.set(String(model.id), { x: model.x, y: model.y });
+        }
+      });
+    }
+    setInputText(next);
+    setShowCommentState(true);
+    stateRef.current.showComment = true;
+    handleGenerate({
+      inputText: next,
+      showComment: true,
+      positionMap: positionMap.size > 0 ? positionMap : null,
+    });
+  };
+
   const handleArrangeLayout = () => {
     if (!graphRef.current || graphRef.current.destroyed) return;
     disableForceIfOn();
@@ -990,6 +1032,7 @@ export function useGraph({
     isColored,
     showComment,
     hideFields,
+    showRelations,
     fontScale,
     forceOn,
     autoAvoid,
@@ -1004,12 +1047,14 @@ export function useGraph({
     setIsColored,
     setShowComment,
     setHideFields,
+    setShowRelations,
     setFontScale,
     setForceOn,
     setAutoAvoid,
     setError,
     dismissParserWarnings,
     handleGenerate,
+    applyComments,
     handleQuickLayout,
     handleArrangeLayout,
     restoreFromSnapshot,

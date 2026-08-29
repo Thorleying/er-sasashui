@@ -54,16 +54,21 @@
     <script>
       (function () {
         try {
-          var t = localStorage.getItem("sql2er-theme");
-          if (t !== "light" && t !== "dark") {
-            t =
-              window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-                ? "dark"
-                : "light";
-          }
-          document.documentElement.setAttribute("data-theme", t);
+          var hour = Number(
+            new Intl.DateTimeFormat("en-GB", {
+              timeZone: "Asia/Shanghai",
+              hour: "2-digit",
+              hourCycle: "h23",
+            }).formatToParts(new Date()).find(function (part) {
+              return part.type === "hour";
+            }).value,
+          );
+          document.documentElement.setAttribute(
+            "data-theme",
+            hour >= 6 && hour < 18 ? "light" : "dark",
+          );
         } catch (e) {
-          /* localStorage 不可用时按系统偏好走 CSS 兜底 */
+          /* 算不出北京时间时交给 CSS 媒体查询兜底 */
         }
       })();
     </script>

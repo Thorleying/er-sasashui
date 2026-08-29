@@ -3,9 +3,11 @@
  */
 import {
   ColumnHeightOutlined,
+  DisconnectOutlined,
   DownloadOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
+  FormOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
   HistoryOutlined,
@@ -28,11 +30,14 @@ import {
 } from "antd";
 import type { MenuProps } from "antd";
 import type { ReactNode, Ref } from "react";
+import { useState } from "react";
 import { CodeEditor } from "../../codeEditor";
 import { usePreviewFullscreen } from "../../hooks/usePreviewFullscreen";
 import type { ExportFormat } from "../../hooks/useExportButton";
 import type { I18N } from "../../i18n";
 import type { ParserWarning, SnapshotRecord } from "../../types";
+import type { CommentDraftTable } from "./applyCommentEdits";
+import { CommentEditor } from "./CommentEditor";
 import { HistoryDrawer } from "./HistoryDrawer";
 import "./editor.css";
 
@@ -51,6 +56,7 @@ export type EditorWorkspaceProps = {
   tableCount: number;
   exporting: boolean;
   onGenerate: () => void;
+  onApplyComments?: (draft: CommentDraftTable[]) => void;
   onExport: (fmt: ExportFormat) => void;
   onShare?: () => void;
   onSmartLayout?: () => void;
@@ -61,6 +67,8 @@ export type EditorWorkspaceProps = {
   setIsColored: (next: boolean) => void;
   hideFields: boolean;
   setHideFields: (next: boolean) => void;
+  showRelations: boolean;
+  setShowRelations: (next: boolean) => void;
   forceOn: boolean;
   setForceOn: (next: boolean) => void;
   autoAvoid: boolean;
@@ -141,18 +149,17 @@ function Legend({
 
 export function EditorWorkspace(props: EditorWorkspaceProps) {
   const { targetRef: previewBodyRef, isFullscreen, toggleFullscreen } = usePreviewFullscreen();
+  const [commentOpen, setCommentOpen] = useState(false);
 
   const exportItems: MenuProps["items"] = [
     { key: "PNG", label: "PNG" },
     { key: "XML", label: "Drawio" },
     { key: "SVG", label: "SVG" },
-    ...(props.tableCount >= 2
-      ? [{ key: "ZIP", label: "ZIP（png/svg/drawio 分目录）" }]
-      : []),
+    ...(props.tableCount >= 2 ? [{ key: "ZIP", label: "ZIP（png/svg/drawio 分目录）" }] : []),
   ];
 
   return (
-    <div className="editor-workspace">
+    <div className={`editor-workspace${props.readOnly ? " editor-workspace--readonly" : ""}`}>
       <Legend
         t={props.t}
         isColored={props.isColored}
@@ -163,69 +170,6 @@ export function EditorWorkspace(props: EditorWorkspaceProps) {
       {props.legendPlacement === "top" ? (
         <Legend t={props.t} isColored={props.isColored} className="editor-legend" />
       ) : null}
-
-      <Card
-        className="editor-card"
-        title={
-          <Space>
-            <UnorderedListOutlined />
-            <span>{props.t.cardInputTitle}</span>
-          </Space>
-        }
-        extra={
-          props.readOnly ? null : (
-            <Space>
-              <Typography.Text>{props.t.showComment}</Typography.Text>
-              <Switch checked={props.showComment} onChange={props.setShowComment} />
-            </Space>
-          )
-        }
-      >
-        <div className="editor-input-stack">
-          <CodeEditor
-            value={props.inputText}
-            onChange={props.setInputText}
-            placeholder={props.t.editorPlaceholder}
-            readOnly={props.readOnly}
-          />
-          <Space wrap>
-            {!props.readOnly ? (
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                loading={props.loading}
-                onClick={props.onGenerate}
-              >
-                {props.t.btnGenerate}
-              </Button>
-            ) : null}
-            <Dropdown
-              disabled={!props.hasGraph}
-              menu={{
-                items: exportItems,
-                onClick: ({ key }) => props.onExport(key as ExportFormat),
-              }}
-            >
-              <Button
-                icon={<DownloadOutlined />}
-                loading={props.exporting}
-                disabled={!props.hasGraph}
-              >
-                {props.t.btnExportLabel}
-              </Button>
-            </Dropdown>
-            {props.onShare ? (
-              <Button
-                icon={<LinkOutlined />}
-                disabled={!props.hasGraph}
-                onClick={props.onShare}
-              >
-                {props.t.btnShare}
-              </Button>
-            ) : null}
-          </Space>
-        </div>
-      </Card>
 
       <Card
         className="editor-card editor-card--preview"
@@ -261,6 +205,7 @@ export function EditorWorkspace(props: EditorWorkspaceProps) {
                 </Space>
               ) : null}
             </div>
+            <p className="editor-preview-hint" dangerouslySetInnerHTML={{ __html: props.t.hint }} />
           </div>
         }
       >
@@ -294,6 +239,19 @@ export function EditorWorkspace(props: EditorWorkspaceProps) {
                   onClick={() => props.setHideFields(!props.hideFields)}
                 />
               </Tooltip>
+              <Tooltip
+                title={props.showRelations ? props.t.tipHideRelations : props.t.tipShowRelations}
+              >
+                <Button
+                  type={props.showRelations ? "default" : "primary"}
+                  icon={props.showRelations ? <LinkOutlined /> : <DisconnectOutlined />}
+                  aria-pressed={!props.showRelations}
+                  aria-label={
+                    props.showRelations ? props.t.tipHideRelations : props.t.tipShowRelations
+                  }
+                  onClick={() => props.setShowRelations(!props.showRelations)}
+                />
+              </Tooltip>
               {props.onOpenHistory ? (
                 <Tooltip title={props.t.tipHistory}>
                   <Button icon={<HistoryOutlined />} onClick={props.onOpenHistory} />
@@ -309,7 +267,9 @@ export function EditorWorkspace(props: EditorWorkspaceProps) {
                       onClick={() => props.setForceOn(!props.forceOn)}
                     />
                   </Tooltip>
-                  <Tooltip title={props.autoAvoid ? props.t.tipAutoAvoidOff : props.t.tipAutoAvoidOn}>
+                  <Tooltip
+                    title={props.autoAvoid ? props.t.tipAutoAvoidOff : props.t.tipAutoAvoidOn}
+                  >
                     <Button
                       type={props.autoAvoid ? "primary" : "default"}
                       icon={<ColumnHeightOutlined />}
@@ -362,6 +322,88 @@ export function EditorWorkspace(props: EditorWorkspaceProps) {
           </div>
         </div>
       </Card>
+
+      {props.readOnly ? null : (
+        <Card
+          className="editor-card"
+          title={
+            <Space>
+              <UnorderedListOutlined />
+              <span>{props.t.cardInputTitle}</span>
+            </Space>
+          }
+          extra={
+            props.readOnly ? null : (
+              <Space>
+                <Typography.Text>{props.t.showComment}</Typography.Text>
+                <Switch checked={props.showComment} onChange={props.setShowComment} />
+                <Button
+                  size="small"
+                  icon={<FormOutlined />}
+                  disabled={!props.hasGraph}
+                  onClick={() => setCommentOpen(true)}
+                >
+                  {props.t.commentEditorOpen}
+                </Button>
+              </Space>
+            )
+          }
+        >
+          <div className="editor-input-stack">
+            <CodeEditor
+              value={props.inputText}
+              onChange={props.setInputText}
+              placeholder={props.t.editorPlaceholder}
+              readOnly={props.readOnly}
+            />
+            <Space className="editor-input-actions" wrap>
+              {!props.readOnly ? (
+                <Button
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  loading={props.loading}
+                  onClick={props.onGenerate}
+                >
+                  {props.t.btnGenerate}
+                </Button>
+              ) : null}
+              <Dropdown
+                disabled={!props.hasGraph}
+                menu={{
+                  items: exportItems,
+                  onClick: ({ key }) => props.onExport(key as ExportFormat),
+                }}
+              >
+                <Button
+                  icon={<DownloadOutlined />}
+                  loading={props.exporting}
+                  disabled={!props.hasGraph}
+                >
+                  {props.t.btnExportLabel}
+                </Button>
+              </Dropdown>
+              {props.onShare ? (
+                <Button icon={<LinkOutlined />} disabled={!props.hasGraph} onClick={props.onShare}>
+                  {props.t.btnShare}
+                </Button>
+              ) : null}
+            </Space>
+          </div>
+        </Card>
+      )}
+
+      {props.onApplyComments ? (
+        <CommentEditor
+          open={commentOpen}
+          inputText={props.inputText}
+          t={props.t}
+          onClose={() => setCommentOpen(false)}
+          onApply={(draft) => {
+            props.onApplyComments?.(draft);
+            setCommentOpen(false);
+          }}
+        />
+      ) : null}
 
       <HistoryDrawer
         open={props.historyOpen}

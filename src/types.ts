@@ -176,6 +176,8 @@ export interface GraphLike {
   // G6 内部容器/canvas 等通过键名取，类型不可控；保留 any 是务实选择。
   get(key: string): any;
   getZoom(): number;
+  hideItem?(item: unknown): void;
+  showItem?(item: unknown): void;
   zoomTo?(zoom: number, point?: { x: number; y: number }): void;
   fitView?(padding?: number): void;
   // 生命周期与尺寸控制：useGraph 持有的 G6 实例需要这些；外部 GraphLike

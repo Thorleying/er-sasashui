@@ -17,62 +17,137 @@
   line-height: 1.3;
   padding: calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px))
     10px calc(16px + env(safe-area-inset-left, 0px));
+  color: var(--color-text-primary);
   background: color-mix(in srgb, var(--color-bg-overlay) 88%, transparent);
   backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
 .user-header-inner {
+  flex: 1;
   width: min(1280px, 100%);
   margin: 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 }
 
-.user-header-desktop {
+.user-header-nav {
   display: flex;
+  justify-content: flex-start;
   align-items: center;
-  justify-content: space-between;
-  flex: 1;
+  gap: 2px;
   min-width: 0;
-  gap: 16px;
 }
 
-.user-header-links,
-.user-header-actions {
+.user-header-end {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
+  margin-left: auto;
   gap: 8px;
 }
 
-.user-header-menu-btn.ant-btn {
-  display: none;
-}
-
-.user-header-menu {
+.user-header-account {
   display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.user-header-menu-group {
-  display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 8px;
+}
+
+.user-nav-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.user-nav-item:hover,
+.user-nav-item:focus-visible {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-accent-orange) 10%, transparent);
+}
+
+.user-nav-item.is-active {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.user-header-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: var(--color-accent-orange);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.user-header-cta:hover,
+.user-header-cta:focus-visible {
+  filter: brightness(1.05);
+}
+
+.user-header-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.user-header-icon:hover,
+.user-header-icon:focus-visible {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-accent-orange) 10%, transparent);
+}
+
+.user-header-email {
+  max-width: 180px;
+  margin-inline: 4px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
 }
 
 .user-brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  color: inherit;
+  gap: 12px;
+  color: var(--color-text-primary);
   min-height: 44px;
   flex-shrink: 0;
   white-space: nowrap;
+  text-decoration: none;
+}
+
+.user-brand-name {
+  color: var(--color-text-primary);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 
 .user-brand-mark {
@@ -108,7 +183,9 @@ body.is-app {
 }
 
 .user-layout--page .user-content.ant-layout-content {
-  padding: 32px 20px 64px;
+  flex: 1 1 auto;
+  min-height: calc(100dvh - 148px);
+  padding: 36px clamp(16px, 4vw, 32px) 40px;
 }
 
 .account-wrap {
@@ -186,16 +263,29 @@ body.is-app {
 }
 
 .contact-wrap {
-  width: min(640px, 100%);
+  width: min(1100px, 100%);
   margin: 0 auto;
+}
+
+.contact-head .ant-typography {
+  margin-bottom: 8px;
 }
 
 .contact-lead {
   margin-bottom: 0;
+  max-width: 42em;
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 20px;
+  margin-top: 20px;
+  align-items: stretch;
 }
 
 .contact-card {
-  margin-top: 20px;
+  height: 100%;
 }
 
 .contact-card .ant-card-head-title {
@@ -207,6 +297,16 @@ body.is-app {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+}
+
+.contact-wechat-id {
+  min-width: 0;
+  flex: 1 1 140px;
+}
+
+.contact-wechat-hint {
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .contact-skills {
@@ -257,21 +357,24 @@ body.is-app {
   }
 }
 
-@media (max-width: 879px) {
-  .user-header-desktop {
+@media (max-width: 560px) {
+  .user-header-email {
     display: none;
   }
+}
 
-  .user-header-menu-btn.ant-btn {
-    display: inline-flex;
+@media (max-width: 879px) {
+  .user-header-email {
+    max-width: 120px;
   }
 
-  .user-layout--page .user-content.ant-layout-content {
-    padding: 20px 16px 48px;
+  .user-nav-item {
+    padding: 6px 10px;
   }
 
   .account-wrap,
-  .landing-sections {
+  .landing-sections,
+  .contact-wrap {
     width: 100%;
   }
 
@@ -283,5 +386,9 @@ body.is-app {
   .landing-cta {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .contact-grid {
+    grid-template-columns: 1fr;
   }
 }

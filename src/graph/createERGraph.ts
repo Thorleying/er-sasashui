@@ -10,13 +10,35 @@ export interface CreateERGraphOptions {
   layoutCfg?: Record<string, unknown>;
   /** false 时禁止拖节点，只读分享场景 */
   interactive?: boolean;
+  /** 只读预览：拖动画布 + 滚轮缩放，不能改节点 */
+  panZoom?: boolean;
+  /** 覆盖默认交互；空数组表示纯展示、交给外层点击 */
+  modes?: Array<string | Record<string, unknown>>;
 }
 
 /** 与 editor.css / user-layout.css 移动端断点一致 */
 const MOBILE_EDITOR_MAX_WIDTH = 900;
 
 /** 窄屏禁用 drag-canvas，避免 touchmove 拦截页面纵向滚动 */
-function buildDefaultModes(interactive = true): Array<string | Record<string, unknown>> {
+function buildDefaultModes(
+  interactive = true,
+  panZoom = false,
+): Array<string | Record<string, unknown>> {
+  if (panZoom) {
+    return [
+      {
+        type: "drag-canvas",
+        allowDragOnItem: true,
+        enableOptimize: false,
+      },
+      {
+        type: "zoom-canvas",
+        minZoom: 0.2,
+        maxZoom: 4,
+        enableOptimize: false,
+      },
+    ];
+  }
   const isMobileEditor =
     typeof window !== "undefined" &&
     window.matchMedia(`(max-width: ${MOBILE_EDITOR_MAX_WIDTH}px)`).matches;
@@ -57,7 +79,13 @@ function buildDefaultModes(interactive = true): Array<string | Record<string, un
  *
  * 拆出来是为了把 useGraph 里 ~100 行 G6 配置常量隔离开。
  */
-export function createERGraph({ container, layoutCfg, interactive = true }: CreateERGraphOptions): GraphLike {
+export function createERGraph({
+  container,
+  layoutCfg,
+  interactive = true,
+  panZoom = false,
+  modes,
+}: CreateERGraphOptions): GraphLike {
   // G6.Graph 接收一份扁平的 cfg；shouldBegin 等回调里的 e 在 G6 4.x 没有公开类型。
   const graph = new (G6 as any).Graph({
     container,
@@ -66,7 +94,7 @@ export function createERGraph({ container, layoutCfg, interactive = true }: Crea
     renderer: "canvas",
     background: "#ffffff",
     modes: {
-      default: buildDefaultModes(interactive),
+      default: modes ?? buildDefaultModes(interactive, panZoom),
       // 滚轮缩放 / Ctrl+滚轮旋转由 useWheelZoomRotate 接管
     },
     layout: layoutCfg,

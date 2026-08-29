@@ -29,11 +29,17 @@ const isDarkCanvasTheme = (): boolean => {
   const explicitTheme = document.documentElement.getAttribute("data-theme");
   if (explicitTheme === "dark") return true;
   if (explicitTheme === "light") return false;
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
+  if (typeof window === "undefined") return false;
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Shanghai",
+      hour: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date())
+      .find((part) => part.type === "hour")?.value,
   );
+  return !(hour >= 6 && hour < 18);
 };
 
 /**
