@@ -25,34 +25,26 @@
   --color-error: #c0453a;
   --color-info: #5a89b8;
 
-  /* 字体（Latin）
-   * 官方品牌字体（来自 brand-guidelines）：Poppins（heading）+ Lora（body）
-   * 备选字体（风格相近，可替代）：DM Sans（heading）+ DM Serif（body）
-   * 所有字体均已内置在 assets/fonts/ 中
-   */
-  --font-display: "Lora", "DM Serif Display", "Georgia", serif;
-  --font-heading: "Poppins", "DM Sans", "Arial", sans-serif;
-  --font-body: "Lora", "DM Serif Text", "Georgia", serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "Courier New", monospace;
+  /* 全站一套系统无衬线，不用宋体展示栈，也不加载 webfont。 */
+  --font-display: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    sans-serif;
+  --font-heading: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    sans-serif;
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "Menlo", "Consolas", "Courier New", monospace;
 
-  /* 字重参考（Poppins 可用 300/400/500/600/700）*/
   --weight-light: 300;
   --weight-regular: 400;
   --weight-medium: 500;
-  --weight-semibold: 600; /* 新增：Poppins 有 600，DM Sans 无 */
+  --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* 字体（简体中文混排）
-   * 英文字体在前（已声明 unicode-range，自动跳过 CJK 字符）
-   * 中文字体在后，作为 CJK 字符的渲染字体
-   */
-  --font-display-cn:
-    "Lora", "DM Serif Display", "Songti SC", "STSong", "SimSun", serif;
+  --font-display-cn: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    sans-serif;
   --font-body-cn:
-    "Lora", "DM Serif Text", "Songti SC", "STSong", "SimSun", serif;
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --font-heading-cn:
-    "Poppins", "DM Sans", "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
-    "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
 
   /* 字号 */
   --text-xs: 0.75rem;

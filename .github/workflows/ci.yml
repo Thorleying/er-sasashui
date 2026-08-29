@@ -44,16 +44,17 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
-      # skills/ 下提交的 CLI bundle 是构建产物；若与当前源码不一致，
-      # sql2er-agent-cli.test.ts 会测到旧代码而假绿。这里重建并比对，
-      # 漂移即失败，提醒提交者运行 pnpm skill:build。
-      - name: Verify skill bundle is up to date
-        run: |
-          pnpm skill:build
-          git diff --exit-code -- skills/
-
-      - name: Unit tests
+      - name: Unit tests (frontend)
         run: pnpm test
+
+      - name: Install server dependencies
+        run: npm ci --prefix server
+
+      - name: Typecheck (server)
+        run: npm run typecheck --prefix server
+
+      - name: Unit tests (server)
+        run: npm test --prefix server
 
       # build 走 BASE_PATH=/sql_to_ER/，与 Pages 部署保持一致；
       # 这样 PR 阶段就能在 vite.config.ts 改坏 base 时立刻失败。

@@ -1,33 +1,40 @@
 {
-  "name": "sql2er",
+  "name": "er-sasashui",
   "version": "1.0.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.29.2",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev:api": "npm run dev --prefix server",
+    "build": "tsc -b && vite build && node scripts/write-sitemap.mjs",
     "preview": "vite preview",
     "serve:dist": "pnpm run build && vite preview --host 127.0.0.1",
     "typecheck": "tsc -b --pretty false",
     "lint": "tsc -b --pretty false",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,md,html}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,md,html}\"",
-    "check": "pnpm run typecheck && pnpm run format:check && pnpm run test",
+    "check": "pnpm run typecheck && pnpm run format:check && pnpm run test && pnpm run test:server",
     "test": "vitest run",
     "test:watch": "vitest",
-    "skill:build": "node skills/sql2er/scripts/build.mjs"
+    "test:server": "npm test --prefix server",
+    "typecheck:server": "npm run typecheck --prefix server"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.2",
     "@antv/g6": "4.8.25",
     "@babel/runtime": "7.29.7",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/state": "^6.7.0",
     "@codemirror/view": "^6.43.4",
+    "antd": "^6.6.2",
     "codemirror": "^6.0.2",
+    "echarts": "^6.1.0",
+    "fflate": "^0.8.3",
     "prismjs": "^1.30.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

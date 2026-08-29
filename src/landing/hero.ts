@@ -9,6 +9,9 @@ import { parseDBML } from "../parser/dbml";
 import * as ERBuilder from "../builder";
 import * as Layout from "../layout";
 
+/** 跟编辑器画布同一套系统字体，不绑 Poppins 等第三方 webfont。 */
+const HERO_FONT_FAMILY = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif';
+
 const HERO_SOURCES: Record<string, string> = {
   zh: `Table 用户 {
   编号 INT [pk, increment]
@@ -53,7 +56,64 @@ Ref: posts.author > users.id`,
 let heroGraph: any = null;
 let heroResetLayout: (() => void) | null = null;
 let heroWheelCleanup: (() => void) | null = null;
+let heroResizeObserver: ResizeObserver | null = null;
 let heroInited = false;
+/** 画布还没撑开时最多再量两次，避免死循环。 */
+let heroSizeRetry = 0;
+
+const HERO_MIN_WIDTH = 360;
+const HERO_MIN_HEIGHT = 288;
+
+/**
+ * 量 Hero 挂载点尺寸。
+ * `#hero-er` 是绝对定位，父级若只有 abs 子元素且高度塌缩，offset 会是 0；
+ * 把 0 交给 G6 会画出空白画布，看起来像空黑盒。
+ */
+function measureHeroMount(
+  mount: HTMLElement,
+  stage: HTMLElement,
+): { width: number; height: number } {
+  const mountBox = mount.getBoundingClientRect();
+  const stageBox = stage.getBoundingClientRect();
+  const width = Math.round(
+    Math.max(
+      mount.offsetWidth,
+      mount.clientWidth,
+      mountBox.width,
+      stage.clientWidth,
+      stageBox.width,
+      0,
+    ),
+  );
+  const height = Math.round(
+    Math.max(
+      mount.offsetHeight,
+      mount.clientHeight,
+      mountBox.height,
+      stage.clientHeight,
+      stageBox.height,
+      0,
+    ),
+  );
+  return { width, height };
+}
+
+/** 失败态文案：跟欢迎页语言走，不依赖 page.ts 是否已写入。 */
+function heroFailedCopy(): string {
+  return "图没出来，刷新试试。";
+}
+
+/**
+ * 空态 / 失败态：拿掉构建遮罩，写出可读文案，不要只剩一块黑。
+ */
+function markHeroFailed(stage: HTMLElement): void {
+  stage.classList.remove("is-building", "is-loading");
+  stage.classList.add("is-failed");
+  const failed = stage.querySelector<HTMLElement>(".er-fallback-failed");
+  if (failed && !failed.textContent?.trim()) {
+    failed.textContent = heroFailedCopy();
+  }
+}
 const heroState: {
   pinnedId: string | null;
   dragging: boolean;
@@ -122,9 +182,34 @@ function buildHeroGraph() {
   const stage = document.getElementById("erStage");
   const mount = document.getElementById("hero-er");
   if (!stage || !mount) return;
-  // 构建期间瞬时隐藏，防止用户看到未 fit 的大图一闪
+  try {
+    buildHeroGraphUnsafe(stage, mount);
+  } catch (err) {
+    console.error("Hero ER failed to render:", err);
+    markHeroFailed(stage);
+  }
+}
+
+/**
+ * 真正建图。解析逻辑保持原样，这里只保证画布有尺寸、失败时有文案。
+ */
+function buildHeroGraphUnsafe(stage: HTMLElement, mount: HTMLElement) {
+  // 构建期间藏画布，但保留 loading 文案，避免中间只剩空盒
   stage.classList.add("is-building");
-  stage.classList.remove("is-loading");
+  stage.classList.remove("is-failed");
+  let { width: W, height: H } = measureHeroMount(mount, stage);
+  if (W < 40 || H < 40) {
+    if (heroSizeRetry < 2) {
+      heroSizeRetry += 1;
+      requestAnimationFrame(() => buildHeroGraph());
+      return;
+    }
+    // 两次仍量不到：用兜底尺寸，绝不把 0×0 交给 G6
+    W = Math.max(W, HERO_MIN_WIDTH);
+    H = Math.max(H, HERO_MIN_HEIGHT);
+  }
+  heroSizeRetry = 0;
+
   if (
     !G6 ||
     !ERBuilder ||
@@ -132,22 +217,19 @@ function buildHeroGraph() {
     typeof parseSQLTables !== "function" ||
     typeof parseDBML !== "function"
   ) {
-    stage.classList.add("is-failed");
+    markHeroFailed(stage);
     return;
   }
   ERBuilder.registerCustomNodes(G6);
 
-  const lang = (document.documentElement.getAttribute("lang") || "zh").startsWith("zh")
-    ? "zh"
-    : "en";
-  const SRC = HERO_SOURCES[lang] || HERO_SOURCES.zh;
+  const SRC = HERO_SOURCES.zh;
   const HERO_STROKE_WIDTH = 1.8;
 
   let parsed = parseSQLTables(SRC);
   if (!parsed.tables.length) parsed = parseDBML(SRC);
   const { tables, relationships } = parsed;
   if (!tables.length) {
-    stage.classList.add("is-failed");
+    markHeroFailed(stage);
     return;
   }
 
@@ -157,15 +239,16 @@ function buildHeroGraph() {
     true,
     "name",
   );
+  if (!nodes || !nodes.length) {
+    markHeroFailed(stage);
+    return;
+  }
   (Layout as any).applyInitialComponentPositions(nodes, edges, mount, 0);
 
   if (heroGraph && !heroGraph.destroyed) {
     heroGraph.destroy();
     heroGraph = null;
   }
-
-  const W = mount.offsetWidth,
-    H = mount.offsetHeight;
   const isDark = document.documentElement.getAttribute("data-theme") === "dark";
   const CANVAS_BG = getComputedStyle(stage).backgroundColor || (isDark ? "#222119" : "#f5f3ec");
   if (heroWheelCleanup) {
@@ -227,7 +310,7 @@ function buildHeroGraph() {
         style: {
           fill: "#141413",
           fontSize: 13,
-          fontFamily: "Poppins, system-ui, sans-serif",
+          fontFamily: HERO_FONT_FAMILY,
         },
       },
     },
@@ -237,7 +320,7 @@ function buildHeroGraph() {
         style: {
           fill: "#141413",
           fontSize: 12,
-          fontFamily: "Poppins, system-ui, sans-serif",
+          fontFamily: HERO_FONT_FAMILY,
           background: {
             fill: CANVAS_BG,
             padding: [2, 4, 2, 4],
@@ -338,7 +421,7 @@ function buildHeroGraph() {
           style: {
             fill: T.entityText,
             fontWeight: "600",
-            fontFamily: "Poppins, sans-serif",
+            fontFamily: HERO_FONT_FAMILY,
           },
         };
       } else if (m.nodeType === "relationship") {
@@ -348,7 +431,7 @@ function buildHeroGraph() {
           lineWidth: HERO_STROKE_WIDTH,
         };
         styles.labelCfg = {
-          style: { fill: T.relText, fontFamily: "Poppins, sans-serif" },
+          style: { fill: T.relText, fontFamily: HERO_FONT_FAMILY },
         };
       } else if (m.nodeType === "attribute") {
         if (m.keyType === "pk") {
@@ -361,7 +444,7 @@ function buildHeroGraph() {
             style: {
               fill: T.pkText,
               fontWeight: "600",
-              fontFamily: "Poppins, sans-serif",
+              fontFamily: HERO_FONT_FAMILY,
             },
           };
         } else {
@@ -373,7 +456,7 @@ function buildHeroGraph() {
           styles.labelCfg = {
             style: {
               fill: T.attrText,
-              fontFamily: "Poppins, sans-serif",
+              fontFamily: HERO_FONT_FAMILY,
             },
           };
         }
@@ -413,9 +496,16 @@ function buildHeroGraph() {
   // 用 RAF 推迟一帧，避开当前 paint 周期内的任何视口重置；
   // fit 完成后再 RAF 一帧才撤掉 is-building，让浏览器先画出 fit 后的状态
   requestAnimationFrame(() => {
-    if (heroGraph && !heroGraph.destroyed) heroGraph.fitView(20);
+    try {
+      if (heroGraph && !heroGraph.destroyed) heroGraph.fitView(20);
+    } catch (err) {
+      console.error("Hero ER fitView failed:", err);
+      markHeroFailed(stage);
+      return;
+    }
     requestAnimationFrame(() => {
-      stage.classList.remove("is-building");
+      // 画布已 fit：同时撤掉构建遮罩和 loading，避免中间空一帧
+      stage.classList.remove("is-building", "is-loading");
       // 快照初始收敛位置 + 视口矩阵，供「重置布局」按钮平滑还原
       if (heroGraph && !heroGraph.destroyed) {
         const snap = new Map<string, { x: number; y: number }>();
@@ -643,18 +733,35 @@ export function initHero() {
   heroInited = true;
   buildHeroGraph();
 
-  // 响应式：显著宽度变化才重建
+  // 响应式：显著宽度变化才重建；0 尺寸不 changeSize，避免把图画没
   const mount = document.getElementById("hero-er");
-  if (!mount) return;
-  let lastW = mount.offsetWidth;
-  const ro = new ResizeObserver(() => {
-    const w = mount.offsetWidth;
+  const stage = document.getElementById("erStage");
+  if (!mount || !stage) return;
+  let lastW = measureHeroMount(mount, stage).width;
+  heroResizeObserver = new ResizeObserver(() => {
+    const { width: w, height: h } = measureHeroMount(mount, stage);
+    if (w < 40 || h < 40) return;
     if (Math.abs(w - lastW) > 60) {
       lastW = w;
       buildHeroGraph();
     } else if (heroGraph && !heroGraph.destroyed) {
-      heroGraph.changeSize(mount.offsetWidth, mount.offsetHeight);
+      heroGraph.changeSize(w, h);
     }
   });
-  ro.observe(mount);
+  heroResizeObserver.observe(mount);
+}
+
+/** 离开欢迎页时拆掉画布，避免下次进来还挂在旧 DOM 上。 */
+export function destroyHero() {
+  heroWheelCleanup?.();
+  heroWheelCleanup = null;
+  heroResizeObserver?.disconnect();
+  heroResizeObserver = null;
+  if (heroGraph && !heroGraph.destroyed) {
+    heroGraph.destroy();
+  }
+  heroGraph = null;
+  heroResetLayout = null;
+  heroInited = false;
+  heroSizeRetry = 0;
 }

@@ -1,13 +1,13 @@
 /* ═══════════════════════════════════════════════════════════
-   sql2er
-   依赖：assets/fonts/fonts.css + assets/base.css
+   ER洒洒水
+   依赖：assets/base.css（系统字体，不加载第三方 webfont）
 ═══════════════════════════════════════════════════════════ */
 
 :root {
   --app-font: var(--font-heading-cn);
   --app-font-display: var(--font-display-cn);
   --app-font-body: var(--font-body-cn);
-  --app-font-mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+  --app-font-mono: var(--font-mono);
 
   --app-ink: var(--color-text-primary);
   --app-ink-2: var(--color-text-secondary);
@@ -23,13 +23,12 @@
   --app-accent: var(--color-accent-orange);
   --app-accent-warm: var(--color-accent-warm);
 
-  /* z-index 体系：overlay > corner（GitHub 折角 / 语言胶囊）> pill > toolbar */
+  /* z-index 体系：overlay > corner（语言胶囊）> toolbar */
   --z-toolbar: 100;
-  --z-pill: 900;
   --z-corner: 1200;
   --z-overlay: 1300;
 
-  /* 画布浮动工具列：起点 + 步进（移动端 / embedded 只需覆盖变量） */
+  /* 画布浮动工具列：起点 + 步进（移动端只需覆盖变量） */
   --toolbar-top: 16px;
   --toolbar-step: 48px;
 }
@@ -71,6 +70,27 @@ body::before {
   color: #fff;
 }
 
+.back-home {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: var(--z-corner);
+  padding: 8px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-full);
+  background: var(--app-bg-overlay);
+  color: var(--app-ink-2);
+  font-family: var(--app-font);
+  font-size: 0.78rem;
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.back-home:hover {
+  color: var(--app-ink);
+  border-color: var(--app-border-strong);
+}
+
 .app-container {
   max-width: 1600px;
   margin: 0 auto;
@@ -78,301 +98,13 @@ body::before {
   position: relative;
 }
 
-.embedded-body {
-  overflow: hidden;
-}
-
-.embedded-shell {
-  max-width: none;
-  min-height: 100vh;
-  padding: 24px;
-}
-
-.embedded-mode {
-  min-height: calc(100vh - 48px);
-}
-
-.embedded-mode .main-content {
-  position: relative;
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-  height: calc(100vh - 48px);
-  min-height: 620px;
-  animation: none;
-}
-
-.embedded-mode .input-section,
-.embedded-mode .output-section,
-.embedded-mode .card {
-  min-height: 0;
-  min-width: 0;
-}
-
-.embedded-mode .card {
-  height: 100%;
-}
-
-.embedded-mode .output-section .card {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
-.embedded-mode .output-section .card:hover {
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.embedded-card-header,
-.embedded-preview-header {
-  min-height: 62px;
-  gap: 14px;
-}
-
-.embedded-readonly-badge {
-  flex: 0 0 auto;
-  padding: 5px 10px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--radius-full);
-  background: var(--app-bg-overlay);
-  color: var(--app-ink-2);
-  font-family: var(--app-font);
-  font-size: 12px;
-  font-weight: var(--weight-medium);
-  line-height: 1;
-}
-
-.embedded-input-content {
-  min-height: 0;
-  padding: 0;
-  gap: 0;
-}
-
-.embedded-editor-pane {
-  min-height: 0;
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
-  display: flex;
-}
-
-.embedded-input-content .cm-host {
-  height: 100%;
-  width: 100%;
-  min-width: 0;
-  flex: 1 1 auto;
-  border: 0;
-  border-radius: var(--radius-md);
-}
-
-.embedded-input-content .cm-host .cm-editor {
-  height: 100%;
-  width: 100%;
-}
-
-.embedded-input-content .cm-host .cm-scroller {
-  width: 100%;
-}
-
-.embedded-input-content .cm-host .cm-content {
-  cursor: default;
-}
-
-.embedded-export-row {
-  flex: 0 0 auto;
-  margin: 0;
-  padding: 14px 0 8px;
-  border-top: 1px solid transparent;
-  background: transparent;
-}
-
-.embedded-export-wrap {
-  flex: 1 1 auto;
-  width: 100%;
-}
-
-.embedded-export-wrap .export-btn,
-.embedded-export-wrap .export-btn[data-state="idle"],
-.embedded-export-wrap .export-btn[data-state="open"],
-.embedded-export-wrap .export-btn[data-state="loading"],
-.embedded-export-wrap .export-btn[data-state="success"] {
-  height: 46px;
-  width: 100%;
-}
-
-.embedded-preview-header {
-  flex-wrap: wrap;
-  height: auto;
-}
-
-.embedded-title-row {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.embedded-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.embedded-header-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-left: auto;
-}
-
-.embedded-mode .embedded-diagram-content {
-  position: relative;
-  min-height: 0;
-  padding: 0;
-  gap: 0;
-  height: 100%;
-  overflow: hidden;
-  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
-}
-
-.embedded-mode .diagram-container {
-  min-height: 0;
-  height: 100%;
-  border-radius: 0 0 var(--radius-xl) var(--radius-xl) !important;
-}
-
-/* embedded 模式没有 history-toggle：force / avoid / slider 依次前移一档。
-   位置统一由 --toolbar-n 驱动（top 公式在下方浮动按钮基础规则里）。 */
-.embedded-mode .force-toggle {
-  --toolbar-n: 3;
-}
-
-.embedded-mode .avoid-toggle {
-  --toolbar-n: 4;
-  left: 16px;
-  right: auto;
-  bottom: auto;
-  top: calc(var(--toolbar-top) + var(--toolbar-n, 0) * var(--toolbar-step));
-}
-
-.embedded-mode .font-size-slider {
-  --toolbar-n: 5;
-  left: 16px;
-  right: auto;
-  bottom: auto;
-  top: calc(var(--toolbar-top) + var(--toolbar-n, 0) * var(--toolbar-step) + 8px);
-}
-
-.embedded-export-item {
-  display: contents;
-}
-
-.skill-install-pill {
-  position: absolute;
-  top: clamp(14px, 1.8vw, 24px);
-  left: 50%;
-  z-index: var(--z-pill);
-  height: 42px;
-  width: min(332px, calc(100vw - 180px));
-  box-sizing: border-box;
-  transform: translateX(-50%);
-  display: inline-flex;
-  align-items: center;
-  padding: 0 0 0 18px;
-  border: 1px solid rgba(20, 20, 19, 0.1);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #1f1f1d;
-  box-shadow:
-    0 14px 32px rgba(20, 20, 19, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  overflow: hidden;
-  animation: skillPillIn 0.9s var(--ease-default) 0.08s backwards;
-  transition:
-    opacity var(--duration-normal) var(--ease-default),
-    transform var(--duration-normal) var(--ease-default);
-}
-
-.skill-install-pill code {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--app-font-mono);
-  font-size: 13px;
-  line-height: 1;
-  color: #252420;
-}
-
-.skill-install-copy-cap {
-  align-self: stretch;
-  width: 42px;
-  margin-left: 12px;
-  display: grid;
-  place-items: center;
-  border-radius: 0 999px 999px 0;
-  flex: 0 0 42px;
-}
-
-.skill-install-copy {
-  width: 34px;
-  height: 34px;
-  border: 1px solid rgba(20, 20, 19, 0.12);
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  background: #ffffff;
-  color: #2a2925;
-  cursor: pointer;
-  box-shadow:
-    0 5px 12px rgba(20, 20, 19, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transition:
-    color var(--duration-fast) var(--ease-default),
-    border-color var(--duration-fast) var(--ease-default),
-    background var(--duration-fast) var(--ease-default),
-    transform var(--duration-fast) var(--ease-default);
-}
-
-.skill-install-copy:hover {
-  color: var(--app-accent-warm);
-  border-color: rgba(217, 119, 87, 0.35);
-  transform: scale(1.04);
-}
-
-.skill-install-copy:active {
-  transform: translateY(1px) scale(0.96);
-  box-shadow:
-    0 2px 6px rgba(20, 20, 19, 0.12),
-    inset 0 2px 4px rgba(20, 20, 19, 0.08);
-}
-
-.skill-install-copy svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
-
-body.history-open .skill-install-pill {
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -6px);
-}
-
 /* ═══════════════════════════════════════
-   头部
+   头部：站名 + slogan，不再放仓库入口
 ═══════════════════════════════════════ */
 .header {
-  margin: 0 auto clamp(28px, 3.6vw, 48px);
-  max-width: 860px;
-  padding-top: 36px;
+  margin: 0 auto clamp(20px, 2.6vw, 36px);
+  max-width: 720px;
+  padding-top: 8px;
   text-align: center;
   animation: fadeInDown 0.9s var(--ease-default);
 }
@@ -381,24 +113,43 @@ body.legend-top-visible .header {
   margin-bottom: clamp(14px, 1.8vw, 22px);
 }
 
+.header-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--app-ink-3);
+  font-family: var(--app-font);
+  font-size: 0.72rem;
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.header-kicker::before,
+.header-kicker::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--app-accent);
+}
+
+.header-kicker::after {
+  width: 5px;
+  height: 5px;
+  background: var(--app-accent-warm);
+  opacity: 0.72;
+}
+
 .header h1 {
   font-family: var(--app-font-display);
   font-weight: var(--weight-regular);
-  font-size: clamp(2rem, 4.4vw, 3.4rem);
+  font-size: clamp(2.4rem, 6vw, 4rem);
   line-height: var(--leading-cn-tight);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.04em;
   color: var(--app-ink);
-  margin: 0 0 var(--space-4) 0;
-}
-
-/* 桌面宽屏上不让标题被 .header 的 860px 框限制换行：
-   英文版 "Turn SQL / DBML into an ER Diagram" 在 clamp 上限字号下
-   约 940px 宽，会被截成两行。把宽屏上的 h1 单行渲染，靠 text-align:center
-   让它在 .app-container 内自然居中即可；窄屏走默认的 normal wrap。 */
-@media (min-width: 769px) {
-  .header h1 {
-    white-space: nowrap;
-  }
+  margin: 0 0 10px 0;
 }
 
 .header h1 em {
@@ -407,13 +158,14 @@ body.legend-top-visible .header {
   font-weight: var(--weight-regular);
 }
 
+.header-slogan,
 .header p {
   font-family: var(--app-font-body);
-  font-size: clamp(1rem, 1.15vw, 1.12rem);
+  font-size: clamp(1rem, 1.3vw, 1.15rem);
   color: var(--app-ink-2);
-  line-height: var(--leading-cn-loose);
+  line-height: var(--leading-cn-snug);
   margin: 0 auto;
-  max-width: 48em;
+  max-width: 28em;
 }
 
 .header-hint {
@@ -1444,18 +1196,6 @@ body.legend-top-visible .header {
   }
 }
 
-@keyframes skillPillIn {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -18px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
-
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -1481,85 +1221,9 @@ body.legend-top-visible .header {
   .main-content {
     grid-template-columns: 1fr;
   }
-
-  .embedded-body {
-    overflow: auto;
-  }
-
-  .embedded-shell {
-    padding: 18px;
-  }
-
-  .embedded-mode,
-  .embedded-mode .main-content {
-    height: auto;
-    min-height: 0;
-  }
-
-  .embedded-mode .main-content {
-    grid-template-columns: 1fr;
-  }
-
-  .embedded-mode .input-section .card {
-    height: 420px;
-  }
-
-  .embedded-mode .output-section .card {
-    height: 70vh;
-    min-height: 520px;
-  }
 }
 
 @media (max-width: 768px) {
-  .embedded-shell {
-    padding: 12px;
-  }
-
-  .embedded-mode .output-section .card {
-    height: 72vh;
-    min-height: 420px;
-  }
-
-  .embedded-preview-header {
-    align-items: flex-start;
-  }
-
-  .embedded-title-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-
-  .embedded-legend {
-    display: none;
-  }
-
-  .embedded-header-actions {
-    margin-left: 0;
-  }
-
-  .skill-install-pill {
-    top: 18px;
-    height: 38px;
-    width: min(322px, calc(100vw - 150px));
-    padding-left: 14px;
-  }
-
-  .skill-install-pill code {
-    font-size: 12px;
-  }
-
-  .skill-install-copy-cap {
-    width: 38px;
-    margin-left: 10px;
-    flex-basis: 38px;
-  }
-
-  .skill-install-copy {
-    width: 32px;
-    height: 32px;
-  }
-
   .btn-primary:hover,
   .btn-accent:hover {
     transform: none;
@@ -1608,10 +1272,8 @@ body.legend-top-visible .header {
     bottom: 64px;
   }
 
-  /* 字号滑杆移到右下并转为横向；embedded 选择器一并写上
-     以压过 .embedded-mode .font-size-slider 的桌面定位（同特异性、更靠后） */
-  .font-size-slider,
-  .embedded-mode .font-size-slider {
+  /* 字号滑杆移到右下并转为横向 */
+  .font-size-slider {
     left: auto;
     right: 16px;
     top: auto;
@@ -1653,8 +1315,8 @@ body.legend-top-visible .header {
   }
 
   .header {
-    margin-bottom: 28px;
-    padding-top: 54px;
+    margin-bottom: 24px;
+    padding-top: 8px;
   }
 
   .header h1 {
@@ -1725,28 +1387,18 @@ body.legend-top-visible .header {
 }
 
 @media (max-width: 480px) {
-  .skill-install-pill {
-    width: min(322px, calc(100vw - 180px));
-  }
-
-  .skill-install-copy-cap {
-    width: 38px;
-    margin-left: 8px;
-    flex-basis: 38px;
-  }
-
   .app-container {
     padding: 16px 12px 24px;
   }
 
   .header {
     margin-bottom: 22px;
-    padding-top: 58px;
+    padding-top: 4px;
   }
 
   .header h1 {
-    font-size: 1.7rem;
-    letter-spacing: -0.02em;
+    font-size: clamp(2rem, 12vw, 2.6rem);
+    letter-spacing: -0.03em;
   }
 
   .header p {
@@ -1927,67 +1579,6 @@ body.is-lang-fading .lang-fade-target {
   opacity: 0.28;
 }
 
-/* ═══════════════════════════════════════
-   GitHub Corner（左上暖橙折角）
-═══════════════════════════════════════ */
-.github-corner {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: var(--z-corner);
-  border: 0;
-  width: 68px;
-  height: 68px;
-  overflow: hidden;
-  display: block;
-}
-
-.github-corner svg {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 68px;
-  height: 68px;
-  border: 0;
-  fill: var(--app-accent);
-  color: #faf9f5;
-  transform: scaleX(-1);
-  transition: fill var(--duration-normal) var(--ease-default);
-}
-
-.github-corner:hover svg {
-  fill: var(--app-accent-warm);
-}
-
-.github-corner .octo-arm {
-  transform-origin: 130px 106px;
-}
-
-.github-corner:hover .octo-arm {
-  animation: octocat-wave 640ms var(--ease-default);
-}
-
-.github-corner:focus-visible svg {
-  fill: var(--app-accent-warm);
-}
-
-@keyframes octocat-wave {
-  0%,
-  100% {
-    transform: rotate(0);
-  }
-
-  20%,
-  60% {
-    transform: rotate(-25deg);
-  }
-
-  40%,
-  80% {
-    transform: rotate(10deg);
-  }
-}
-
 @media (max-width: 500px) {
   .lang-switch {
     top: 14px;
@@ -2003,24 +1594,6 @@ body.is-lang-fading .lang-fade-target {
 
   .lang-switch[data-lang="en"] .lang-thumb {
     transform: translateX(28px);
-  }
-
-  .github-corner {
-    width: 54px;
-    height: 54px;
-  }
-
-  .github-corner svg {
-    width: 54px;
-    height: 54px;
-  }
-
-  .github-corner:hover .octo-arm {
-    animation: none;
-  }
-
-  .github-corner .octo-arm {
-    animation: octocat-wave 640ms var(--ease-default);
   }
 }
 
@@ -2329,9 +1902,7 @@ body.is-lang-fading .lang-fade-target {
 .force-toggle:focus-visible,
 .avoid-toggle:focus-visible,
 .font-size-slider:focus-visible,
-.parser-warning-close:focus-visible,
-.skill-install-copy:focus-visible,
-.github-corner:focus-visible {
+.parser-warning-close:focus-visible {
   outline: 2px solid var(--app-accent);
   outline-offset: 3px;
 }

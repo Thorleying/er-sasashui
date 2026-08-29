@@ -1,9 +1,16 @@
 /**
  * SVG Exporter Module
- * 导出 SVG 功能模块
+ * 导出 SVG / PNG / Drawio / 多表 ZIP 功能模块
  */
 import type { MutableRefObject } from "react";
 import type { GraphLike } from "./types";
+import {
+  composeTableZipEntries,
+  filterGraphDataForTable,
+  packZipEntries,
+  sanitizeTableExportBasename,
+  type SavedGraphData as ZipSavedGraphData,
+} from "./features/export/tableExportZip";
 
 // ─── 公共类型 ────────────────────────────────────────────
 
@@ -11,11 +18,16 @@ export type ExportDoneCallback = (err: unknown, triggerDownload?: (() => void) |
 
 /**
  * 导出失败时通过 onError 上报的错误码。
- * 具体的用户可见文案由调用方（App / EmbeddedApp）按当前语言映射，
+ * 具体的用户可见文案由调用方（App）按当前语言映射，
  * exporter 自身不携带任何语言相关字符串。
  */
 export type ExportErrorCode =
-  "export-no-graph" | "export-svg-failed" | "export-png-failed" | "export-drawio-failed";
+  | "export-no-graph"
+  | "export-svg-failed"
+  | "export-png-failed"
+  | "export-drawio-failed"
+  | "export-zip-failed"
+  | "export-zip-needs-tables";
 
 // G6 4.x 的导出/克隆链路里我们用到了几个未在 GraphLike 上声明的方法，
 // 在本模块内补齐一个最小可用的别名（不再 extends GraphLike，否则
@@ -59,11 +71,18 @@ export interface BuildExportSVGResult {
   svgString: string;
   width: number;
   height: number;
+  /** includeDrawio 为 true 时附带 draw.io XML。 */
+  drawioXml?: string;
 }
 
 export type BuildExportSVGCallback = (err: unknown, result?: BuildExportSVGResult | null) => void;
 
-export type BuildExportSVGOptions = BaseExportOptions;
+export type BuildExportSVGOptions = BaseExportOptions & {
+  /** 指定图数据时跳过从 graphRef 读取（多表 ZIP 按表切分用）。 */
+  graphData?: unknown;
+  /** 为 true 时在回调中附带 drawioXml（在销毁临时图之前生成）。 */
+  includeDrawio?: boolean;
+};
 
 interface SavedGraphData {
   nodes?: Array<{
@@ -173,6 +192,11 @@ export interface ExportDrawioOptions {
   filenameBase?: string;
 }
 
+export interface ExportZIPOptions extends UserFacingExportOptions {
+  /** 至少 2 张表才走 ZIP；每项 index 与 builder entity id 后缀一致。 */
+  tables: Array<{ name: string; index: number }>;
+}
+
 // ─── 实现 ────────────────────────────────────────────────
 
 /**
@@ -202,7 +226,8 @@ export function downloadSVG(svgString: string, filename: string): void {
  * 回调 cb(err, { svgString, width, height })
  */
 export function buildExportSVG(options: BuildExportSVGOptions, cb: BuildExportSVGCallback): void {
-  const { graphRef, containerRef, patchRelationshipLinkPoints, G6 } = options;
+  const { graphRef, containerRef, patchRelationshipLinkPoints, G6, graphData: graphDataOverride } =
+    options;
   const backgroundFill = options.backgroundFill || "#ffffff";
   // 失败/成功共用的清理逻辑：任何路径都不能泄漏临时容器或临时图实例。
   let tempContainer: HTMLDivElement | null = null;
@@ -224,11 +249,14 @@ export function buildExportSVG(options: BuildExportSVGOptions, cb: BuildExportSV
   try {
     const sourceGraph = graphRef.current as unknown as ExportableGraph | null;
     const sourceContainer = containerRef.current;
-    if (!sourceGraph || !sourceContainer) {
+    if (graphDataOverride == null && (!sourceGraph || !sourceContainer)) {
       cb(new Error("graph or container not ready"));
       return;
     }
-    const data = normalizeGraphDataForLightExport(sourceGraph.save());
+    const data =
+      graphDataOverride != null
+        ? normalizeGraphDataForLightExport(graphDataOverride)
+        : normalizeGraphDataForLightExport(sourceGraph!.save());
 
     tempContainer = document.createElement("div");
     tempContainer.style.position = "absolute";
@@ -238,8 +266,8 @@ export function buildExportSVG(options: BuildExportSVGOptions, cb: BuildExportSV
 
     tempGraph = new G6.Graph({
       container: tempContainer,
-      width: sourceContainer.offsetWidth,
-      height: sourceContainer.offsetHeight || 600,
+      width: sourceContainer?.offsetWidth ?? 800,
+      height: sourceContainer?.offsetHeight || 600,
       renderer: "svg",
       modes: { default: [] },
       layout: null,
@@ -313,11 +341,24 @@ export function buildExportSVG(options: BuildExportSVGOptions, cb: BuildExportSV
 
         const svgString = new XMLSerializer().serializeToString(clonedSvg);
 
+        let drawioXml: string | undefined;
+        if (options.includeDrawio) {
+          if (patchRelationshipLinkPoints) {
+            try {
+              patchRelationshipLinkPoints(graphInstance as unknown as GraphLike);
+            } catch (_) {
+              /* 容错 */
+            }
+          }
+          drawioXml = buildDrawioXML(graphInstance as unknown as GraphLike);
+        }
+
         cleanup();
         cb(null, {
           svgString,
           width: viewBoxWidth,
           height: viewBoxHeight,
+          drawioXml,
         });
       } catch (innerError) {
         cleanup();
@@ -733,4 +774,130 @@ export function exportDrawio(options: ExportDrawioOptions): void {
   } catch (err) {
     finishErr("export-drawio-failed", err);
   }
+}
+
+function buildExportSVGAsync(options: BuildExportSVGOptions): Promise<BuildExportSVGResult> {
+  return new Promise((resolve, reject) => {
+    buildExportSVG(options, (err, result) => {
+      if (err || !result) reject(err ?? new Error("buildExportSVG failed"));
+      else resolve(result);
+    });
+  });
+}
+
+function rasterizeSVGToPNGAsync(
+  svgString: string,
+  width: number,
+  height: number,
+  scale: number,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    rasterizeSVGToPNG(svgString, width, height, scale, (err, blob) => {
+      if (err || !blob) reject(err ?? new Error("rasterize failed"));
+      else resolve(blob);
+    });
+  });
+}
+
+/**
+ * 多表 ZIP：每张表各导出 png / svg / draw.io，打包为一个 zip 下载。
+ * 至少需要 2 张表；单表子图含该实体及其属性节点。
+ */
+export function exportZIP(options: ExportZIPOptions): void {
+  const {
+    graphRef,
+    hasGraph,
+    onError,
+    onDone,
+    tables,
+    patchRelationshipLinkPoints,
+    G6,
+    containerRef,
+    filenameBase,
+  } = options;
+
+  const finishErr = (code: ExportErrorCode, detail?: unknown) => {
+    if (detail !== undefined) console.error(`[sql2er] ${code}:`, detail);
+    if (onError) onError(code);
+    if (onDone) onDone(new Error(code), null);
+  };
+  const finishOk = (download: () => void) => {
+    if (onDone) onDone(null, download);
+  };
+
+  if (!graphRef.current || !hasGraph) {
+    finishErr("export-no-graph");
+    return;
+  }
+  if (!tables || tables.length < 2) {
+    finishErr("export-zip-needs-tables");
+    return;
+  }
+
+  const sourceData = normalizeGraphDataForLightExport(
+    (graphRef.current as unknown as ExportableGraph).save(),
+  ) as ZipSavedGraphData;
+  const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+  const scale = Math.max(2, Math.min(3, Math.ceil(dpr)));
+  const zipBase = filenameBase || defaultExportFilenameBase();
+
+  void (async () => {
+    try {
+      const artifacts: Array<{
+        basename: string;
+        files: { svg: string; png: Uint8Array; drawio: string };
+      }> = [];
+
+      for (const table of tables) {
+        const filtered = filterGraphDataForTable(sourceData, table.name, table.index);
+        if (!filtered.nodes?.length) continue;
+
+        const result = await buildExportSVGAsync({
+          graphRef,
+          containerRef,
+          patchRelationshipLinkPoints,
+          G6,
+          graphData: filtered,
+          includeDrawio: true,
+        });
+
+        if (!result.drawioXml) {
+          throw new Error("drawio export missing");
+        }
+
+        const pngBlob = await rasterizeSVGToPNGAsync(
+          result.svgString,
+          result.width,
+          result.height,
+          scale,
+        );
+        const pngBytes = new Uint8Array(await pngBlob.arrayBuffer());
+
+        artifacts.push({
+          basename: sanitizeTableExportBasename(table.name),
+          files: {
+            svg: result.svgString,
+            png: pngBytes,
+            drawio: result.drawioXml,
+          },
+        });
+      }
+
+      if (artifacts.length === 0) {
+        finishErr("export-zip-failed", new Error("no table artifacts"));
+        return;
+      }
+
+      const entries = composeTableZipEntries(artifacts);
+      const zipped = packZipEntries(entries);
+      finishOk(() =>
+        downloadBlob(
+          new Blob([zipped as unknown as BlobPart], { type: "application/zip" }),
+          `${zipBase}.zip`,
+        ),
+      );
+    } catch (err) {
+      finishErr("export-zip-failed", err);
+    }
+  })();
 }

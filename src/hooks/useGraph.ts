@@ -56,6 +56,12 @@ export interface GenerateOptions {
 export interface UseGraphOptions {
   t: Translation;
   initialLang?: Language;
+  /** 解析成功并建图后回调。恢复快照不算一次生成。 */
+  onGenerated?: () => void;
+  /** 只读模式：禁止编辑 SQL、拖节点、布局操作。 */
+  readOnly?: boolean;
+  /** 初始快照（分享页注入）；有值时跳过会话恢复与示例图。 */
+  initialSnapshot?: SnapshotRecord;
 }
 
 export interface UseGraphResult {
@@ -73,6 +79,8 @@ export interface UseGraphResult {
   forceOn: boolean;
   autoAvoid: boolean;
   hasGraph: boolean;
+  /** 当前图对应的表列表（多表时可 ZIP 导出）。 */
+  tableList: Array<{ name: string; index: number }>;
   error: string | null;
   errorVisible: boolean;
   parserWarnings: ParserWarning[];
@@ -110,11 +118,23 @@ export interface UseGraphResult {
  *    延迟保存被 cancelPendingPersist 吞掉，第二次 setup 重建图。生产模式正常一次。
  *  - pendingSaveTimer 卸载时统一被 useSnapshotPersistence 取消。
  */
-export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
+export function useGraph({
+  t,
+  initialLang,
+  onGenerated,
+  readOnly = false,
+  initialSnapshot,
+}: UseGraphOptions): UseGraphResult {
   const lang = initialLang ?? (detectLang() as Language);
+  const onGeneratedRef = useRef(onGenerated);
+  onGeneratedRef.current = onGenerated;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const initialSnapshotRef = useRef(initialSnapshot);
+  initialSnapshotRef.current = initialSnapshot;
 
   const [inputText, setInputTextState] = useState<string>(I18N[lang].sample);
-  const [isColored, setIsColoredState] = useState(true);
+  const [isColored, setIsColoredState] = useState(false);
   const [showComment, setShowCommentState] = useState(false);
   const [hideFields, setHideFieldsState] = useState(false);
   const [fontScale, setFontScaleState] = useState(1);
@@ -126,6 +146,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   const [parserWarningsVisible, setParserWarningsVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [hasGraph, setHasGraph] = useState(false);
+  const [tableList, setTableList] = useState<Array<{ name: string; index: number }>>([]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const graphRef = useRef<GraphLike | null>(null);
@@ -385,6 +406,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         tablesDataRef.current = null;
         lastInputRef.current = "";
         setHasGraph(false);
+        setTableList([]);
         // 解析彻底失败时更要展示带行号的诊断（DBML 尝试的警告优先，
         // 其次是 SQL 尝试的），而不是只留一句"未找到有效的表"。
         const diagnostics = (parsedData.warnings ?? []).length
@@ -490,13 +512,16 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
         container,
         data: { nodes, edges },
         layoutCfg,
+        interactive: !readOnlyRef.current,
       }) as GraphLike & {
         data: (d: { nodes: unknown; edges: unknown }) => void;
         render: () => void;
       };
 
       graphRef.current = graph;
+      setTableList(tables.map((table, index) => ({ name: table.name, index })));
       setHasGraph(true);
+      if (!positionMap) onGeneratedRef.current?.();
 
       graph.data({ nodes, edges });
       graph.render();
@@ -515,48 +540,52 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
       // 后续拖动、编辑或切换设置会取消这次排程，并按正常保存更新时间。
       // 力布局 + smoothFitView 总共 ~1s；2.5s 比较稳妥。
       const restoringSnapshot = positionMap !== null;
-      const saveDelay = restoringSnapshot ? 600 : 2500;
-      schedulePersist(
-        {
-          id: Snapshots.hashInput(trimmed),
-          inputText: trimmed,
-          isColored: useIsColored,
-          showComment: useShowComment,
-          hideFields: useHideFields,
-        },
-        saveDelay,
-        restoringSnapshot ? { preserveUpdatedAt: true } : undefined,
-      );
+      if (!readOnlyRef.current) {
+        const saveDelay = restoringSnapshot ? 600 : 2500;
+        schedulePersist(
+          {
+            id: Snapshots.hashInput(trimmed),
+            inputText: trimmed,
+            isColored: useIsColored,
+            showComment: useShowComment,
+            hideFields: useHideFields,
+          },
+          saveDelay,
+          restoringSnapshot ? { preserveUpdatedAt: true } : undefined,
+        );
+      }
 
-      // 双击编辑 + hover/drag 同步
-      setupNodeDoubleClickEdit(graph as any, container, {
-        onBeforeChange: () => historyRef.current.record(graph),
-        onAfterChange: () => {
-          persistAfterOptionalAutoAvoid();
-        },
-      });
-      attachEntityDragSync(
-        graph as any,
-        historyRef.current,
-        () => forceOnRef.current,
-        (meta) => {
-          persistAfterOptionalAutoAvoid(0, meta);
-        },
-        (projectedNodes, edges) => {
-          if (!autoAvoidRef.current) return new Map();
-          return computeAutoAvoidTargets(projectedNodes, graphNodeSize, {
-            edges,
-            movableIds: projectedNodes
-              .filter((node) => node.nodeType !== "entity")
-              .map((node) => node.id),
-          });
-        },
-      );
+      if (!readOnlyRef.current) {
+        // 双击编辑 + hover/drag 同步
+        setupNodeDoubleClickEdit(graph as any, container, {
+          onBeforeChange: () => historyRef.current.record(graph),
+          onAfterChange: () => {
+            persistAfterOptionalAutoAvoid();
+          },
+        });
+        attachEntityDragSync(
+          graph as any,
+          historyRef.current,
+          () => forceOnRef.current,
+          (meta) => {
+            persistAfterOptionalAutoAvoid(0, meta);
+          },
+          (projectedNodes, edges) => {
+            if (!autoAvoidRef.current) return new Map();
+            return computeAutoAvoidTargets(projectedNodes, graphNodeSize, {
+              edges,
+              movableIds: projectedNodes
+                .filter((node) => node.nodeType !== "entity")
+                .map((node) => node.id),
+            });
+          },
+        );
 
-      // 持续力导向控制器：拖动期间根据斥力 + 连边引力重排其它节点
-      const forceCtrl = attachForceLoop(graph as any);
-      forceCtrlRef.current = forceCtrl;
-      if (forceOnRef.current) forceCtrl.setEnabled(true);
+        // 持续力导向控制器：拖动期间根据斥力 + 连边引力重排其它节点
+        const forceCtrl = attachForceLoop(graph as any);
+        forceCtrlRef.current = forceCtrl;
+        if (forceOnRef.current) forceCtrl.setEnabled(true);
+      }
     } catch (e) {
       console.error("SQL Parsing error:", e);
       const msg = e instanceof Error ? e.message : String(e);
@@ -784,6 +813,21 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
   // 那样会让第一次 cleanup 销毁图后第二次 mount 跳过重建，最终右侧示例图
   // 永远不出现。
   useEffect(() => {
+    // 分享只读页：直接恢复快照，不走会话草稿与示例图。
+    if (initialSnapshotRef.current) {
+      restoreFromSnapshot(initialSnapshotRef.current);
+      return () => {
+        cancelErrorShowFrame();
+        clearParserWarningHideTimer();
+        cancelParserWarningShowFrame();
+        cancelPendingPersist();
+        forceCtrlRef.current?.destroy();
+        forceCtrlRef.current = null;
+        graphRef.current?.destroy?.();
+        graphRef.current = null;
+      };
+    }
+
     // 会话恢复：仅恢复 6 小时内的最近快照或草稿；更早的内容仍保留在
     // 生成历史中，但刷新/重进时直接回到初始示例。
     let cancelled = false;
@@ -950,6 +994,7 @@ export function useGraph({ t, initialLang }: UseGraphOptions): UseGraphResult {
     forceOn,
     autoAvoid,
     hasGraph,
+    tableList,
     error,
     errorVisible,
     parserWarnings,

@@ -7,6 +7,9 @@ interface StylesUpdate {
   [key: string]: unknown;
 }
 
+/** 画布节点字跟页面一致，走系统字体，不绑第三方 webfont。 */
+const CANVAS_FONT_FAMILY = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", sans-serif';
+
 export const clampFontScale = (scale: number | undefined): number => {
   if (!Number.isFinite(scale)) return 1;
   return Math.min(1.6, Math.max(0.4, scale as number));
@@ -102,7 +105,7 @@ export const updateGraphStyles = (
             style: {
               fill: "#0f172a",
               fontWeight: "700",
-              fontFamily: "Poppins",
+              fontFamily: CANVAS_FONT_FAMILY,
               fontStyle: "italic",
             },
           };
@@ -118,7 +121,7 @@ export const updateGraphStyles = (
             style: {
               fill: "#0f172a",
               fontWeight: "700",
-              fontFamily: "Poppins",
+              fontFamily: CANVAS_FONT_FAMILY,
             },
           };
         }
@@ -131,7 +134,7 @@ export const updateGraphStyles = (
           shadowBlur: 10,
         };
         styles.labelCfg = {
-          style: { fill: "#0f172a", fontFamily: "Poppins" },
+          style: { fill: "#0f172a", fontFamily: CANVAS_FONT_FAMILY },
         };
       } else if (model.nodeType === "attribute") {
         if (model.keyType === "pk") {
@@ -146,7 +149,7 @@ export const updateGraphStyles = (
             style: {
               fill: "#0f172a",
               fontWeight: "700",
-              fontFamily: "Poppins",
+              fontFamily: CANVAS_FONT_FAMILY,
             },
           };
         } else {
@@ -159,7 +162,7 @@ export const updateGraphStyles = (
             style: {
               fill: "#475569",
               fontWeight: "normal",
-              fontFamily: "Poppins",
+              fontFamily: CANVAS_FONT_FAMILY,
             },
           };
         }
@@ -179,7 +182,7 @@ export const updateGraphStyles = (
             fill: darkCanvas ? "#ffffff" : "#64748b",
             fontWeight: "bold",
             fontStyle: "italic",
-            fontFamily: "Poppins",
+            fontFamily: CANVAS_FONT_FAMILY,
           },
         };
       } else {
@@ -187,7 +190,7 @@ export const updateGraphStyles = (
           style: {
             fill: darkCanvas ? "#ffffff" : "#1e293b",
             fontWeight: model.nodeType === "entity" || model.keyType === "pk" ? "bold" : "normal",
-            fontFamily: "Poppins",
+            fontFamily: CANVAS_FONT_FAMILY,
           },
         };
       }

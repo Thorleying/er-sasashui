@@ -19,28 +19,16 @@ describe("diagnostic overlay animations", () => {
     expect(showParserWarnings).not.toContain("setParserWarningsVisible(warnings.length > 0)");
   });
 
-  it("keeps embedded parser warnings hidden on first render before scheduling fade-in", () => {
-    const source = readSource("../EmbeddedApp.tsx");
-
-    expect(source).toContain(
-      "const [parserWarningsVisible, setParserWarningsVisible] = useState(false)",
-    );
-    expect(source).toContain("showParserWarnings(state.parserWarnings ?? [])");
-    expect(source).toContain("parserWarningsShowFrameRef");
-  });
-
-  it("renders error overlays with a delayed visible class in app and embedded views", () => {
-    const useGraph = readSource("../hooks/useGraph.ts");
-    const useEmbeddedGraph = readSource("../hooks/useEmbeddedGraph.ts");
+  it("routes parse errors through App message feedback instead of canvas overlay", () => {
     const app = readSource("../App.tsx");
-    const embeddedApp = readSource("../EmbeddedApp.tsx");
+    const workspace = readSource("../features/editor/EditorWorkspace.tsx");
+    const feedback = readSource("../app/feedback.ts");
 
-    expect(useGraph).toContain("const [errorVisible, setErrorVisible] = useState(false)");
-    expect(useEmbeddedGraph).toContain("const [errorVisible, setErrorVisible] = useState(false)");
-    expect(app).toContain("errorVisible,");
-    expect(app).toContain('diagram-error-overlay${errorVisible ? " is-visible" : ""}');
-    expect(embeddedApp).toContain("errorVisible,");
-    expect(embeddedApp).toContain('diagram-error-overlay${errorVisible ? " is-visible" : ""}');
+    expect(app).toContain("showError(error)");
+    expect(app).toContain('from "./app/feedback"');
+    expect(feedback).toContain("message.error");
+    expect(workspace).not.toContain("props.error");
+    expect(workspace).not.toContain('className="diagram-error-overlay');
   });
 
   it("defines hidden and visible CSS states for error overlay transitions", () => {

@@ -1,12 +1,12 @@
-import React from "react";
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "../assets/fonts/fonts.css";
+import "antd/dist/reset.css";
 import "../assets/base.css";
+import "../css/landing.css";
 import "../css/style.css";
-import App from "./App";
-import { setupLanguageSwitch } from "./language";
-
-setupLanguageSwitch();
+import { AppRouter } from "./app/router";
+import { AntdProvider } from "./theme/AntdProvider";
+import "./app/brand-mark.css";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {
@@ -14,7 +14,9 @@ if (!rootEl) {
 }
 
 createRoot(rootEl).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <StrictMode>
+    <AntdProvider>
+      <AppRouter />
+    </AntdProvider>
+  </StrictMode>,
 );

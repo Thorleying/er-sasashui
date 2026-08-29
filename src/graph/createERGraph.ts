@@ -8,6 +8,47 @@ export interface CreateERGraphOptions {
   data: ChenModelData;
   /** force2 布局配置；不传则不跑布局（恢复快照路径） */
   layoutCfg?: Record<string, unknown>;
+  /** false 时禁止拖节点，只读分享场景 */
+  interactive?: boolean;
+}
+
+/** 与 editor.css / user-layout.css 移动端断点一致 */
+const MOBILE_EDITOR_MAX_WIDTH = 900;
+
+/** 窄屏禁用 drag-canvas，避免 touchmove 拦截页面纵向滚动 */
+function buildDefaultModes(interactive = true): Array<string | Record<string, unknown>> {
+  const isMobileEditor =
+    typeof window !== "undefined" &&
+    window.matchMedia(`(max-width: ${MOBILE_EDITOR_MAX_WIDTH}px)`).matches;
+
+  if (!interactive) {
+    if (isMobileEditor) return [];
+    return [
+      {
+        type: "drag-canvas",
+        allowDragOnItem: true,
+        enableOptimize: false,
+        shouldBegin(e: { item?: { getType: () => string } }) {
+          return !e.item || e.item.getType() !== "node";
+        },
+      },
+    ];
+  }
+
+  const modes: Array<string | Record<string, unknown>> = ["drag-node"];
+
+  if (!isMobileEditor) {
+    modes.push({
+      type: "drag-canvas",
+      allowDragOnItem: true,
+      enableOptimize: false,
+      shouldBegin(e: { item?: { getType: () => string } }) {
+        return !e.item || e.item.getType() !== "node";
+      },
+    });
+  }
+
+  return modes;
 }
 
 /**
@@ -16,7 +57,7 @@ export interface CreateERGraphOptions {
  *
  * 拆出来是为了把 useGraph 里 ~100 行 G6 配置常量隔离开。
  */
-export function createERGraph({ container, layoutCfg }: CreateERGraphOptions): GraphLike {
+export function createERGraph({ container, layoutCfg, interactive = true }: CreateERGraphOptions): GraphLike {
   // G6.Graph 接收一份扁平的 cfg；shouldBegin 等回调里的 e 在 G6 4.x 没有公开类型。
   const graph = new (G6 as any).Graph({
     container,
@@ -25,19 +66,8 @@ export function createERGraph({ container, layoutCfg }: CreateERGraphOptions): G
     renderer: "canvas",
     background: "#ffffff",
     modes: {
-      default: [
-        "drag-node", // 1. 先判断拖节点
-        {
-          type: "drag-canvas",
-          allowDragOnItem: true, // 2. 允许在 item 上拖画布
-          enableOptimize: false,
-          shouldBegin(e: any) {
-            // 真空白处或非 node 才开始拖画布；落在 node 上交给 drag-node。
-            return !e.item || e.item.getType() !== "node";
-          },
-        },
-        // 滚轮缩放 / Ctrl+滚轮旋转由 useWheelZoomRotate 接管
-      ],
+      default: buildDefaultModes(interactive),
+      // 滚轮缩放 / Ctrl+滚轮旋转由 useWheelZoomRotate 接管
     },
     layout: layoutCfg,
     defaultNode: {

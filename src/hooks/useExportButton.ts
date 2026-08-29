@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-export type ExportFormat = "PNG" | "SVG" | "XML" | "JSON";
+export type ExportFormat = "PNG" | "SVG" | "XML" | "JSON" | "ZIP";
 export type ExportState = "idle" | "open" | "loading" | "success";
 export type ExportView = ExportState | null;
 

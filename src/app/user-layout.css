@@ -1,0 +1,287 @@
+/**
+ * 用户端 antd 壳层。画布网格仍走 style.css 的 .diagram-container。
+ */
+
+.user-layout {
+  min-height: 100vh;
+}
+
+.user-header.ant-layout-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  height: auto;
+  min-height: 64px;
+  line-height: 1.3;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) calc(16px + env(safe-area-inset-right, 0px))
+    10px calc(16px + env(safe-area-inset-left, 0px));
+  background: color-mix(in srgb, var(--color-bg-overlay) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.user-header-inner {
+  width: min(1280px, 100%);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+
+.user-header-desktop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+  gap: 16px;
+}
+
+.user-header-links,
+.user-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.user-header-menu-btn.ant-btn {
+  display: none;
+}
+
+.user-header-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.user-header-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.user-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  min-height: 44px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.user-brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-accent-orange);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+
+.user-content.ant-layout-content {
+  padding: 0;
+}
+
+.user-layout--editor {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.user-layout--editor .user-content.ant-layout-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 生成器页：允许整页纵向滚动，避免嵌套 flex 视口锁死 */
+body.is-app {
+  overflow-x: clip;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.user-layout--page .user-content.ant-layout-content {
+  padding: 32px 20px 64px;
+}
+
+.account-wrap {
+  width: min(440px, 100%);
+  margin: 0 auto;
+}
+
+.landing-sections {
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 48px 20px 72px;
+  display: grid;
+  gap: 48px;
+}
+
+.landing-section-head {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.landing-section-head .ant-typography {
+  margin-bottom: 0;
+}
+
+.landing-section-lead {
+  max-width: 40em;
+  margin-bottom: 0;
+}
+
+.landing-feature-card {
+  height: 100%;
+}
+
+.landing-feature-card .ant-card-body {
+  min-height: 180px;
+}
+
+.landing-feature-card .ant-typography {
+  margin-bottom: 8px;
+}
+
+.landing-feature-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 16px;
+  background: color-mix(in srgb, var(--color-accent-orange) 16%, transparent);
+  color: var(--color-accent-orange);
+  font-size: 18px;
+}
+
+.hero-hint {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.landing-cta {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.landing-cta-band .ant-card-body {
+  padding: 28px 24px;
+}
+
+.legal-wrap {
+  width: min(720px, 100%);
+  margin: 0 auto;
+}
+
+.contact-wrap {
+  width: min(640px, 100%);
+  margin: 0 auto;
+}
+
+.contact-lead {
+  margin-bottom: 0;
+}
+
+.contact-card {
+  margin-top: 20px;
+}
+
+.contact-card .ant-card-head-title {
+  font-weight: 600;
+}
+
+.contact-wechat {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.contact-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.legal-wrap .ant-typography {
+  margin-bottom: 12px;
+}
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px 24px;
+  padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border-subtle);
+  text-align: center;
+}
+
+.site-footer-links {
+  display: flex;
+  gap: 16px;
+}
+
+.site-footer-links a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .user-layout.user-layout--editor.ant-layout {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .user-layout--editor .user-content.ant-layout-content {
+    flex: none;
+    min-height: auto;
+    height: auto;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 879px) {
+  .user-header-desktop {
+    display: none;
+  }
+
+  .user-header-menu-btn.ant-btn {
+    display: inline-flex;
+  }
+
+  .user-layout--page .user-content.ant-layout-content {
+    padding: 20px 16px 48px;
+  }
+
+  .account-wrap,
+  .landing-sections {
+    width: 100%;
+  }
+
+  .landing-sections {
+    padding: 32px 16px 56px;
+    gap: 32px;
+  }
+
+  .landing-cta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

@@ -2,7 +2,7 @@
  * CodeEditor Module - CodeMirror 6 编辑器组件
  *
  * 与 G6 节点双击编辑逻辑分文件维护，避免浏览器编辑器和图节点编辑职责耦合。
- * App 与 EmbeddedApp 都静态导入本组件，首次渲染即可直接初始化 CodeMirror。
+ * App 静态导入本组件，首次渲染即可直接初始化 CodeMirror。
  */
 import { useEffect, useRef } from "react";
 import { EditorView, basicSetup } from "codemirror";

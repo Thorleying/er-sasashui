@@ -8,6 +8,15 @@ const base = process.env.BASE_PATH || "/";
 export default defineConfig({
   base,
   plugins: [react()],
+  server: {
+    // 前端只认 /api，开发时转到独立 Node 服务，避免再写死端口。
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     // 隐藏式 sourcemap：产物里不写 sourceMappingURL 注释，但 .map 文件会生成，
     // 便于线上报错时本地对照定位；部署工作流不会把 .map 发布出去。
@@ -17,10 +26,6 @@ export default defineConfig({
     // known dependency cost so warnings remain actionable.
     chunkSizeWarningLimit: 1100,
     rollupOptions: {
-      input: {
-        main: "index.html",
-        app: "sql2er.html",
-      },
       output: {
         manualChunks(id) {
           if (id.includes("node_modules/@antv/g6")) {

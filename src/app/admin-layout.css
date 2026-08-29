@@ -1,0 +1,478 @@
+/**
+ * B 端后台壳。深色侧栏、浅色工作区，不套用户站营销顶栏。
+ */
+
+.admin-boot {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--color-bg-base, #ece9e0);
+}
+
+.admin-shell {
+  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.admin-shell > .admin-sider.ant-layout-sider {
+  position: sticky;
+  top: 0;
+  flex-shrink: 0;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.admin-shell .admin-sider .ant-layout-sider-children {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.admin-shell .admin-sider .ant-menu-dark {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.admin-main.ant-layout {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.admin-shell .admin-sider.ant-layout-sider,
+.admin-shell .admin-sider .ant-layout-sider-children {
+  background: #1a1916 !important;
+}
+
+.admin-sider-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 12px 20px;
+  color: #f5f3ec;
+  font-weight: 600;
+}
+
+.admin-sider-brand small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: #a9a69c;
+}
+
+.admin-sider-brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-accent-orange);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.admin-shell .ant-menu-dark,
+.admin-drawer .admin-menu.ant-menu-dark {
+  background: transparent;
+  border-inline-end: none !important;
+  padding: 8px;
+}
+
+.admin-shell .ant-menu-dark .ant-menu-item-selected,
+.admin-drawer .admin-menu.ant-menu-dark .ant-menu-item-selected {
+  background: color-mix(in srgb, var(--color-accent-orange) 28%, #1a1916) !important;
+  color: #fff !important;
+}
+
+.admin-drawer-root .ant-drawer-header {
+  padding: 12px 16px;
+}
+
+.admin-drawer-root .ant-drawer-header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-drawer-root .ant-drawer-close {
+  color: rgba(245, 243, 236, 0.82) !important;
+}
+
+.admin-drawer-root .ant-drawer-close:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.admin-drawer .admin-menu.ant-menu-dark .ant-menu-item,
+.admin-drawer .admin-menu.ant-menu-dark .ant-menu-item .ant-menu-item-icon,
+.admin-drawer .admin-menu.ant-menu-dark .ant-menu-item .anticon {
+  color: rgba(245, 243, 236, 0.88);
+}
+
+.admin-drawer .admin-menu.ant-menu-dark .ant-menu-item:hover,
+.admin-drawer .admin-menu.ant-menu-dark .ant-menu-item-active {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.admin-drawer .admin-sider-brand {
+  padding: 0;
+  min-height: auto;
+  color: #f5f3ec;
+}
+
+.admin-header.ant-layout-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
+  height: 64px;
+  padding: 0 24px;
+  background: var(--color-bg-overlay, #fdfcf8);
+  border-bottom: 1px solid var(--color-border-subtle, #e5e0d4);
+  line-height: 1.3;
+}
+
+.admin-header-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600 !important;
+}
+
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.admin-header-menu-btn.ant-btn {
+  color: var(--color-text-primary, #141413);
+  flex-shrink: 0;
+}
+
+.admin-header-home-btn .anticon + .admin-header-home-label {
+  margin-inline-start: 6px;
+}
+
+.admin-content.ant-layout-content {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 24px;
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  background: var(--color-bg-base, #ece9e0);
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-page {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  max-width: 1200px;
+  min-width: 0;
+}
+
+.admin-page-title {
+  margin: 0 !important;
+}
+
+.admin-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.admin-stat-card .ant-statistic-title {
+  color: var(--color-text-secondary, #6b6860);
+}
+
+.admin-trend-chart {
+  width: 100%;
+  height: 320px;
+}
+
+.admin-overview-chart {
+  width: 100%;
+  height: 360px;
+}
+
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/** 管理端列表顶栏筛选：inline 表单换行 + 查询/重置成组 */
+.admin-filter-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.admin-filter-form .ant-form-item {
+  margin-inline-end: 0;
+  margin-bottom: 0;
+}
+
+.admin-filter-actions .ant-form-item-control-input-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-mobile-panel {
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-mobile-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-mobile-card {
+  border: 1px solid var(--color-border-subtle, #e8e6dc);
+  border-radius: 12px;
+  padding: 12px;
+  background: var(--color-bg-overlay, #fdfcf8);
+}
+
+.admin-mobile-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.admin-mobile-card__head strong {
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.admin-mobile-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.admin-mobile-card__time {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #b0aea5);
+  white-space: nowrap;
+}
+
+.admin-mobile-card__row {
+  display: flex;
+  gap: 8px;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  padding: 2px 0;
+}
+
+.admin-mobile-card__label {
+  flex: 0 0 4.2em;
+  color: var(--color-text-muted, #b0aea5);
+}
+
+.admin-mobile-card__value {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  color: var(--color-text-secondary, #6b6860);
+}
+
+.admin-mobile-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-subtle, #e8e6dc);
+}
+
+.admin-mobile-pagination.ant-pagination {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 8px;
+}
+
+.admin-mobile-empty {
+  padding: 32px 12px;
+  text-align: center;
+  color: var(--color-text-muted, #b0aea5);
+  font-size: 0.875rem;
+}
+
+/** 管理端表格：限制在卡片内，横向滚动只在表格区域发生 */
+.admin-table-panel .ant-card-body {
+  overflow: hidden;
+}
+
+.admin-table-panel .ant-table-wrapper {
+  width: 100%;
+  max-width: 100%;
+}
+
+.admin-data-table .ant-table {
+  table-layout: fixed;
+}
+
+.admin-filter-input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (min-width: 640px) {
+  .admin-filter-input--path,
+  .admin-filter-input--ip {
+    width: 140px;
+  }
+
+  .admin-filter-input--user {
+    width: 160px;
+  }
+
+  .admin-filter-input--date {
+    width: 148px;
+  }
+}
+
+.admin-drawer .admin-sider-brand {
+  padding: 0;
+}
+
+@media (max-width: 991px) {
+  .admin-shell {
+    height: 100dvh;
+  }
+
+  .admin-content.ant-layout-content {
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .admin-header.ant-layout-header {
+    height: auto;
+    min-height: 56px;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .admin-header-title {
+    font-size: 1rem;
+    order: 2;
+    flex: 1 1 100%;
+  }
+
+  .admin-header-menu-btn.ant-btn {
+    order: 1;
+  }
+
+  .admin-header-actions {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .admin-header-email {
+    display: none !important;
+  }
+
+  .admin-header-home-label,
+  .admin-header-logout-label {
+    display: none;
+  }
+
+  .admin-header-home-btn.ant-btn,
+  .admin-header-logout-btn.ant-btn {
+    min-width: 40px;
+    padding-inline: 10px;
+  }
+
+  .admin-page-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .admin-page-title.ant-typography {
+    font-size: 1.25rem !important;
+  }
+
+  .admin-trend-chart {
+    height: 260px;
+  }
+
+  .admin-overview-chart {
+    height: 280px;
+  }
+
+  .admin-filter-form {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .admin-filter-form.ant-form-vertical .ant-form-item {
+    margin-bottom: 0;
+  }
+
+  .admin-filter-form .ant-select,
+  .admin-filter-form .ant-input,
+  .admin-filter-form .ant-input-number {
+    width: 100%;
+  }
+
+  .admin-filter-actions .ant-form-item-control-input-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .admin-filter-actions .ant-form-item-control-input-content .ant-btn {
+    width: 100%;
+  }
+
+  .admin-table-panel .ant-card-body,
+  .admin-page > .ant-card .ant-card-body {
+    padding: 12px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .admin-header.ant-layout-header,
+  [data-theme="dark"] .admin-header.ant-layout-header {
+    background: #222119;
+    border-bottom-color: #2e2d27;
+  }
+
+  :root:not([data-theme="light"]) .admin-header-menu-btn.ant-btn,
+  [data-theme="dark"] .admin-header-menu-btn.ant-btn {
+    color: #f5f3ec;
+  }
+}

@@ -7,6 +7,7 @@ import { patchRelationshipLinkPoints } from "../builder";
 interface Options {
   graphRef: MutableRefObject<GraphLike | null>;
   historyRef: MutableRefObject<HistoryManager>;
+  disabled?: boolean;
   onAfterChange?: () => void;
   /**
    * 撤销/重做真正执行前调用。用于停掉持续力导向等仍在写坐标的循环，
@@ -29,6 +30,7 @@ const isEditableTarget = (el: EventTarget | null): boolean => {
 export function useUndoRedoShortcuts({
   graphRef,
   historyRef,
+  disabled = false,
   onAfterChange,
   onBeforeChange,
 }: Options) {
@@ -40,6 +42,7 @@ export function useUndoRedoShortcuts({
   onBeforeChangeRef.current = onBeforeChange;
 
   useEffect(() => {
+    if (disabled) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
@@ -71,5 +74,5 @@ export function useUndoRedoShortcuts({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [graphRef, historyRef]);
+  }, [graphRef, historyRef, disabled]);
 }

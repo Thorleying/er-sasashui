@@ -47,6 +47,7 @@ jobs:
         run: pnpm build
         env:
           BASE_PATH: ${{ steps.base.outputs.value }}
+          VITE_SITE_URL: https://${{ github.repository_owner }}.github.io
 
       # 隐藏式 sourcemap 只用于本地对照调试，不发布到 Pages
       - name: Strip sourcemaps from Pages artifact

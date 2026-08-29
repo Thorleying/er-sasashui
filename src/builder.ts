@@ -941,7 +941,7 @@ const estimateAttributeHalfSize = (
 // 节点尺寸：单一事实来源
 // ========================================
 // 下面三个 measure* 与 registerCustomNodes 里 draw/update 的尺寸公式必须一致，
-// 因此 draw/update 直接调用它们。无浏览器环境（如 agent skill 的无头 GraphLike
+// 因此 draw/update 直接调用它们。无浏览器环境（如无头 GraphLike
 // 适配器）也用同一套函数复现 getBBox，保证渲染与无头计算的尺寸完全相同。
 
 interface NodeSize {
